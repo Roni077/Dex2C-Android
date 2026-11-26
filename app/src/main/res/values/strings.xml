@@ -445,4 +445,20 @@
     <string name="action_close">Close</string>
     <string name="recent_bottom_sheet_subtitle">%1$d recent items</string>
     <string name="recent_empty_title">No recent files recorded</string>
+
+    <!-- Telegram Promotion Dialog & Community -->
+    <string name="telegram_promo_title">Join Dex2C on Telegram</string>
+    <string name="telegram_promo_subtitle">Stay ahead with the latest releases, CI recipes, and community support</string>
+    <string name="telegram_promo_badge">Community Channel</string>
+    <string name="telegram_promo_benefit_releases">Instant release announcements &amp; pre-compiled APKs</string>
+    <string name="telegram_promo_benefit_ci">GitHub Actions cloud workflow tips &amp; NDK transpiler guides</string>
+    <string name="telegram_promo_benefit_community">Direct developer Q&amp;A, reverse engineering support &amp; issue reporting</string>
+    <string name="telegram_promo_action_join">Join Channel</string>
+    <string name="telegram_promo_action_later">Maybe Later</string>
+    <string name="telegram_promo_dont_show_again">Don\'t show again</string>
+    <string name="telegram_channel_url">https://t.me/Dex2C_Android</string>
+    <string name="settings_community_section_title">Community &amp; Support</string>
+    <string name="settings_community_telegram_title">Official Telegram Channel</string>
+    <string name="settings_community_telegram_desc">Join discussions, get updates, and connect with Dex2C developers</string>
+    <string name="settings_community_telegram_btn">Join @Dex2C_Android</string>
 </resources>

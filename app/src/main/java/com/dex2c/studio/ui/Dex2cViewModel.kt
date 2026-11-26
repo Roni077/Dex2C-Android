@@ -310,6 +310,9 @@ class Dex2cViewModel @JvmOverloads constructor(
   private val _isPickerOpen = MutableStateFlow(false)
   val isPickerOpen: StateFlow<Boolean> = _isPickerOpen.asStateFlow()
 
+  private val _isTelegramPromoOpen = MutableStateFlow(false)
+  val isTelegramPromoOpen: StateFlow<Boolean> = _isTelegramPromoOpen.asStateFlow()
+
   private val _activePickerTab = MutableStateFlow(PickerTab.STORAGE)
   val activePickerTab: StateFlow<PickerTab> = _activePickerTab.asStateFlow()
 
@@ -2005,6 +2008,22 @@ class Dex2cViewModel @JvmOverloads constructor(
   fun completeOnboarding() {
     if (_appSettings.value.hasCompletedOnboarding && pendingAppSettingsWrites == 0) return
     updateAppSettings { it.copy(hasCompletedOnboarding = true) }
+  }
+
+  fun showTelegramPromo() {
+    _isTelegramPromoOpen.value = true
+  }
+
+  fun dismissTelegramPromo(dontShowAgain: Boolean = false) {
+    _isTelegramPromoOpen.value = false
+    if (dontShowAgain) {
+      updateAppSettings { it.copy(telegramPromoDismissed = true) }
+    }
+  }
+
+  fun onJoinTelegramPromo() {
+    _isTelegramPromoOpen.value = false
+    updateAppSettings { it.copy(telegramPromoDismissed = true) }
   }
 
   fun setAppLanguage(language: com.dex2c.studio.data.AppLanguage) {

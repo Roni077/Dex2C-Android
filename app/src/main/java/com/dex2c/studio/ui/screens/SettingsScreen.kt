@@ -161,6 +161,7 @@ fun SettingsScreen(
   onTrimMemory: () -> Unit = {},
   onClearDiskCache: () -> Unit = {},
   onCopyText: (String) -> Unit,
+  onOpenTelegramChannel: () -> Unit = {},
   onBack: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -272,6 +273,7 @@ fun SettingsScreen(
                 onTrimMemory = onTrimMemory,
                 onClearDiskCache = onClearDiskCache,
                 onCopyText = onCopyText,
+                onOpenTelegramChannel = onOpenTelegramChannel,
               )
             }
           }
@@ -321,6 +323,7 @@ fun SettingsScreen(
                   onTrimMemory = onTrimMemory,
                   onClearDiskCache = onClearDiskCache,
                   onCopyText = onCopyText,
+                  onOpenTelegramChannel = onOpenTelegramChannel,
                 )
               }
             }
@@ -514,6 +517,7 @@ private fun SettingsDetailHost(
   onTrimMemory: () -> Unit = {},
   onClearDiskCache: () -> Unit = {},
   onCopyText: (String) -> Unit,
+  onOpenTelegramChannel: () -> Unit = {},
 ) {
   when (section) {
     SettingsSection.APPEARANCE ->
@@ -571,6 +575,7 @@ private fun SettingsDetailHost(
         appSettings = appSettings,
         transpilerConfig = transpilerConfig,
         onCopyText = onCopyText,
+        onOpenTelegramChannel = onOpenTelegramChannel,
       )
   }
 }

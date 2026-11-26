@@ -167,6 +167,7 @@ data class AppSettings(
   val defaultOnlyBytecode: Boolean = true,
   val autoSelectMethodLimit: Int = 32,
   val hasCompletedOnboarding: Boolean = false,
+  val telegramPromoDismissed: Boolean = false,
 )
 
 private val Context.appDataStore by preferencesDataStore(name = "dex2c_app_prefs")
@@ -189,6 +190,7 @@ class AppPreferences(private val context: Context) {
     val DEFAULT_ONLY_BYTECODE = booleanPreferencesKey("default_only_bytecode")
     val AUTO_SELECT_METHOD_LIMIT = intPreferencesKey("auto_select_method_limit")
     val HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding")
+    val TELEGRAM_PROMO_DISMISSED = booleanPreferencesKey("telegram_promo_dismissed")
   }
 
   private fun readSettings(prefs: androidx.datastore.preferences.core.Preferences): AppSettings {
@@ -224,6 +226,7 @@ class AppPreferences(private val context: Context) {
       autoSelectMethodLimit =
         (prefs[Keys.AUTO_SELECT_METHOD_LIMIT] ?: defaults.autoSelectMethodLimit).coerceIn(8, 256),
       hasCompletedOnboarding = prefs[Keys.HAS_COMPLETED_ONBOARDING] ?: defaults.hasCompletedOnboarding,
+      telegramPromoDismissed = prefs[Keys.TELEGRAM_PROMO_DISMISSED] ?: defaults.telegramPromoDismissed,
     )
   }
 
@@ -248,6 +251,7 @@ class AppPreferences(private val context: Context) {
     prefs[Keys.DEFAULT_ONLY_BYTECODE] = settings.defaultOnlyBytecode
     prefs[Keys.AUTO_SELECT_METHOD_LIMIT] = settings.autoSelectMethodLimit
     prefs[Keys.HAS_COMPLETED_ONBOARDING] = settings.hasCompletedOnboarding
+    prefs[Keys.TELEGRAM_PROMO_DISMISSED] = settings.telegramPromoDismissed
   }
 
   val settingsFlow: Flow<AppSettings> =

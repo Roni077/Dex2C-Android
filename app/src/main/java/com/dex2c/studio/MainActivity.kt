@@ -127,6 +127,7 @@ import com.dex2c.studio.ui.DexLoadState
 import com.dex2c.studio.ui.components.ApkPickerSheet
 import com.dex2c.studio.ui.components.ApkPreviewSheet
 import com.dex2c.studio.ui.components.ExpressiveMotion
+import com.dex2c.studio.ui.components.TelegramPromoDialog
 import com.dex2c.studio.ui.components.WorkflowLogDialog
 import com.dex2c.studio.ui.screens.ClassesScreen
 import com.dex2c.studio.ui.screens.CloudBuildScreen
@@ -342,6 +343,8 @@ fun Dex2cApp(
   val cloudApkUrl by viewModel.cloudApkUrl.collectAsStateWithLifecycle()
   val pendingCloudApkSave by viewModel.pendingCloudApkSave.collectAsStateWithLifecycle()
   val workflowLogState by viewModel.workflowLogState.collectAsStateWithLifecycle()
+  val isTelegramPromoOpen by viewModel.isTelegramPromoOpen.collectAsStateWithLifecycle()
+  val telegramChannelUrl = stringResource(R.string.telegram_channel_url)
 
   val openDocLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -436,6 +439,36 @@ fun Dex2cApp(
     }
   }
 
+  fun openTelegramUrl(url: String) {
+    runCatching {
+      val uri = Uri.parse(url)
+      val telegramAppUri =
+        if (url.startsWith("https://t.me/")) {
+          val username = url.removePrefix("https://t.me/").substringBefore('/')
+          Uri.parse("tg://resolve?domain=$username")
+        } else if (url.startsWith("@")) {
+          Uri.parse("tg://resolve?domain=${url.removePrefix("@")}")
+        } else {
+          uri
+        }
+
+      val appIntent = Intent(Intent.ACTION_VIEW, telegramAppUri).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      val pm = context.packageManager
+      if (appIntent.resolveActivity(pm) != null) {
+        context.startActivity(appIntent)
+      } else {
+        val webIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(webIntent)
+      }
+    }.onFailure {
+      openBrowserUrl(url)
+    }
+  }
+
   LaunchedEffect(statusBanner) {
     val msg = statusBanner ?: return@LaunchedEffect
     snackbarHostState.showSnackbar(msg)
@@ -500,6 +533,12 @@ fun Dex2cApp(
     navigateTopLevel(target.route)
     viewModel.attachToCloudRun(target.runId)
     onDeepLinkConsumed()
+  }
+
+  LaunchedEffect(appSettingsHydrated, appSettings.hasCompletedOnboarding, appSettings.telegramPromoDismissed, currentRoute) {
+    if (appSettingsHydrated && appSettings.hasCompletedOnboarding && !appSettings.telegramPromoDismissed && currentRoute == ROUTE_HOME) {
+      viewModel.showTelegramPromo()
+    }
   }
 
   BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -907,6 +946,7 @@ fun Dex2cApp(
                 onTrimMemory = { viewModel.onTrimMemory() },
                 onClearDiskCache = { viewModel.clearAppDiskCache(context) },
                 onCopyText = { copyText(it) },
+                onOpenTelegramChannel = { openTelegramUrl(telegramChannelUrl) },
                 onBack = { navController.popBackStack() },
               )
             }
@@ -1007,6 +1047,15 @@ fun Dex2cApp(
       state = activeWorkflowLog,
       onDismiss = { viewModel.dismissWorkflowLog() },
       onCopyLog = { copyText(it) },
+    )
+  }
+
+  if (isTelegramPromoOpen) {
+    TelegramPromoDialog(
+      onJoin = {
+        viewModel.onJoinTelegramPromo()
+        openTelegramUrl(telegramChannelUrl)
+      },
     )
   }
 }

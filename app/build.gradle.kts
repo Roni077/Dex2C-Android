@@ -30,7 +30,8 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     ndk {
-      abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+      abiFilters.clear()
+      abiFilters += listOf("arm64-v8a")
     }
 
     val enableDexEditing =
@@ -43,10 +44,7 @@ android {
 
   splits {
     abi {
-      isEnable = true
-      reset()
-      include("arm64-v8a", "armeabi-v7a")
-      isUniversalApk = true
+      isEnable = false
     }
   }
 

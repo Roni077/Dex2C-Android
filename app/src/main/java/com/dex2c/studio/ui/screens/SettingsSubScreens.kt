@@ -1419,6 +1419,7 @@ fun SettingsAboutSubScreen(
   appSettings: AppSettings,
   transpilerConfig: TranspilerConfig,
   onCopyText: (String) -> Unit,
+  onOpenTelegramChannel: () -> Unit = {},
 ) {
   LazyColumn(
     modifier = Modifier.fillMaxSize(),
@@ -1516,6 +1517,68 @@ fun SettingsAboutSubScreen(
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+      }
+    }
+
+    item {
+      SubScreenCard(
+        title = stringResource(R.string.settings_community_section_title),
+        icon = Icons.Rounded.Info,
+      ) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+          Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = com.dex2c.studio.ui.components.TelegramBrandColor,
+            modifier = Modifier.size(48.dp),
+          ) {
+            Box(contentAlignment = Alignment.Center) {
+              Icon(
+                painter = painterResource(R.drawable.ic_telegram),
+                contentDescription = null,
+                tint = androidx.compose.ui.graphics.Color.White,
+                modifier = Modifier.size(26.dp),
+              )
+            }
+          }
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = stringResource(R.string.settings_community_telegram_title),
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            )
+            Text(
+              text = stringResource(R.string.settings_community_telegram_desc),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(
+          onClick = onOpenTelegramChannel,
+          modifier = Modifier.fillMaxWidth().testTag("settings_join_telegram_btn"),
+          shape = RoundedCornerShape(14.dp),
+          colors =
+            ButtonDefaults.buttonColors(
+              containerColor = com.dex2c.studio.ui.components.TelegramBrandColor,
+              contentColor = androidx.compose.ui.graphics.Color.White,
+            ),
+        ) {
+          Icon(
+            painter = painterResource(R.drawable.ic_telegram),
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(
+            text = stringResource(R.string.settings_community_telegram_btn),
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+          )
+        }
       }
     }
   }
