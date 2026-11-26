@@ -38,7 +38,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,8 +51,6 @@ import com.dex2c.studio.dex.DexClassInfo
 import com.dex2c.studio.transpiler.FilterRuleEngine
 import com.dex2c.studio.transpiler.StructuredFilterRule
 import com.dex2c.studio.ui.theme.JetBrainsMonoFontFamily
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Modal dialog that presents the user's selected classes and their auto-generated
@@ -73,26 +70,16 @@ fun SelectedClassesFilterDialog(
 
   var isExclude by remember { mutableStateOf(false) }
 
-  val generatedRulesState =
-    produceState(
-      initialValue = emptyList<StructuredFilterRule>(),
-      selectedClasses,
-      selectedMethodIds,
-      allowInit,
-      isExclude,
-    ) {
-      value =
-        withContext(Dispatchers.Default) {
-          FilterRuleEngine.generateWildcardRulesFromSelection(
-            classes = selectedClasses,
-            selectedMethodIds = selectedMethodIds,
-            allowInit = allowInit,
-            isBlacklist = isExclude,
-          )
-        }
+  val generatedRules =
+    remember(selectedClasses, selectedMethodIds, allowInit, isExclude) {
+      FilterRuleEngine.generateWildcardRulesFromSelection(
+        classes = selectedClasses,
+        selectedMethodIds = selectedMethodIds,
+        allowInit = allowInit,
+        isBlacklist = isExclude,
+      )
     }
 
-  val generatedRules = generatedRulesState.value
   val generatedRuleLines = remember(generatedRules) { generatedRules.map { it.toFilterLine() } }
 
   AlertDialog(
