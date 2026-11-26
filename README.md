@@ -1,7 +1,7 @@
 # Dex2C Studio — Dalvik Decompiler, In-Memory Smali Studio & C++17 Native Transpiler
 
 <p align="center">
-  <img src="app/src/main/res/drawable/ic_ribbon_logo_light.xml" width="128" height="128" alt="Dex2C Studio Logo" />
+  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="128" height="128" alt="Dex2C Studio Logo" />
 </p>
 
 <p align="center">
@@ -24,48 +24,6 @@
 **Dex2C Studio** (`com.dex2c.studio`) is a mobile reverse-engineering IDE and native compilation workbench designed for Android power users and security researchers. It bridges the gap between Dalvik bytecode analysis, interactive in-memory byte assembly, and high-performance native method transpilation into modern C++17 JNI code.
 
 The application operates **100% in memory** using streaming ZIP/DEX extractors, random-access virtual data stores (`MemoryDataStore`), and bounded LRU caches to ensure zero disk leaks, zero residual temporary files, and maximum responsiveness on mobile devices.
-
----
-
-## 🏗️ End-to-End System Architecture
-
-```mermaid
-flowchart TD
-    subgraph S1["1. Binary Ingestion & Parsing"]
-        A["Binary Sources<br/>(SAF Picker / Installed Apps / Self-APK)"] --> B["ApkDexExtractor<br/>(Streaming ZipInputStream)"]
-        B --> C["DexParser<br/>(112B Header, Map, Pools, Bytecode)"]
-        C --> D["DexEditSession & MemoryDataStore<br/>(In-Memory Virtual Storage)"]
-    end
-
-    subgraph S2["2. DEX Explorer & Modification"]
-        D --> E["Classes Explorer<br/>(Compacted Tree / Flat List)"]
-        D --> F["Methods & Fields Explorer"]
-        D --> G["String Pool Inspector<br/>(Global Search & Replace)"]
-        D --> H["Filter Rule Engine<br/>(Whitelist / Blacklist Regex)"]
-    end
-
-    subgraph S3["3. Hybrid Rust Engine & Smali Studio"]
-        E --> I["SmaliClassDisassembler<br/>(Baksmali Engine & AST)"]
-        I --> J["Smali Editor<br/>(Autocomplete Chips, Label Jump, Undo/Redo)"]
-        J --> K["DexEditVerifier<br/>(Pre-flight AST Syntax Check)"]
-        K --> L["SmaliDexCompiler<br/>(smali-dexlib2 + DexPool)"]
-        L --> D
-        E --> M["librust_dex2c.so<br/>(Zero-Copy DEX Indexer & D2CN Protocol)"]
-    end
-
-    subgraph S4["4. Dalvik-to-C++17 Transpiler & CFG"]
-        E --> N["Method Detail Screen"]
-        N --> O["MethodCfgBuilder<br/>(Basic Blocks, Edges, Switch Tables)"]
-        N --> P["Dex2cTranspiler<br/>(C++17/C99 JNI Code Generator)"]
-        P --> Q["JNI Code Generation<br/>(RegisterNatives / Static Symbols)"]
-    end
-
-    subgraph S5["5. Export & Build Hub"]
-        L --> R["Patched DEX / APK Exporter<br/>(16KB/4B Page Aligned, Clean Signatures)"]
-        Q --> S["Local NDK ZIP Exporter<br/>(CMakeLists, Android.mk, C++ Sources)"]
-        Q --> T["GitHub Actions Cloud CI<br/>(OAuth Device Flow + WorkManager Alerts)"]
-    end
-```
 
 ---
 
@@ -103,36 +61,16 @@ flowchart TD
 
 ---
 
-## 🏛️ Repository Asset Pillars
-
-The repository includes 6 key knowledge, architecture, and developer asset suites:
-
-| Asset Pillar | Path | Description |
-| :--- | :--- | :--- |
-| 📖 **Documentation Suite** | [`docs/`](docs/) | End-to-end workflows ([`detailed_app_workflow_and_usages.md`](docs/detailed_app_workflow_and_usages.md)), remediation roadmaps ([`dex2c_master_remediation_roadmap.md`](docs/dex2c_master_remediation_roadmap.md)), and phase specifications ([`phases.md`](docs/phases.md)). |
-| 🌐 **Knowledge Graph** | [`graphify-out/`](graphify-out/) | AST-based codebase knowledge graph ([`graph.html`](graphify-out/graph.html)), interactive call flow ([`Dex2c-Android-callflow.html`](graphify-out/Dex2c-Android-callflow.html)), and collapsible tree ([`GRAPH_TREE.html`](graphify-out/GRAPH_TREE.html)). |
-| 🏛️ **Architecture Visualizer** | [`.archify/`](.archify/) | Standalone explorable HTML system architecture model ([`dex2c-studio-architecture.html`](.archify/architecture-dex2c-studio-20261120-095500/dex2c-studio-architecture.html)). |
-| 🛠️ **Developer Scripts** | [`scripts/`](scripts/) | Rust NDK build script ([`build_rust_engine.ps1`](scripts/build_rust_engine.ps1)), GitHub Actions log cleaner ([`delete_workflow_runs.py`](scripts/delete_workflow_runs.py)), and vector brand generators. |
-| 🖼️ **Public Assets & UI Gallery** | [`public/assets/`](public/assets/) | High-resolution UI captures, screen progressions, and AI Studio build telemetry logs. |
-| 🛡️ **Security Audit** | [`.security-audit/`](.security-audit/) | Formal defensive security review ([`REPORT.md`](.security-audit/run-1/REPORT.md)), attack surface analysis, and vulnerability remediation ledger. |
-
----
-
 ## 📂 Repository Layout
 
 ```
-Dex2c-Android/
-├── .archify/                    # Interactive architecture visualization HTML & JSON
+Dex2C-Android/
 ├── .github/
 │   └── workflows/build.yml      # CI workflow for tests, debug & release split builds
-├── .security-audit/             # Defensive security review report & findings ledger
 ├── app/                         # Android application module
 │   ├── src/main/java/           # Kotlin source code (UI, transpiler, cloud, dex engines)
 │   ├── src/main/jniLibs/        # Pre-built native shared libraries (arm64-v8a, armeabi-v7a, x86_64)
 │   └── src/test/java/           # Comprehensive JUnit & Robolectric test suite (23 test files)
-├── docs/                        # Architecture specs, phase plans, and workflow guides
-├── graphify-out/                # AST knowledge graph, call-flow diagram, and architecture reports
-├── public/assets/               # Screenshots, UI captures, and build logs
 ├── rust-engine/                 # Modular Rust native workspace (6 crates)
 │   ├── crates/dex2c-core/       # Core AST & shared types
 │   ├── crates/dex2c-dex/        # Zero-copy DEX parser & indexer
@@ -140,37 +78,9 @@ Dex2c-Android/
 │   ├── crates/dex2c-transpiler/ # Dalvik-to-C++ transpilation engine
 │   ├── crates/dex2c-toolchain/  # NDK / Clang toolchain invocations
 │   └── crates/dex2c-editor/     # High-performance code editor tokenization
-├── scripts/                     # PowerShell and Python build/maintenance utilities
+├── gradle/                      # Gradle wrapper & version catalogs
 └── README.md                    # Repository documentation (this file)
 ```
-
----
-
-## 🌿 Git Branching Strategy & Workflow
-
-To maintain repository hygiene and ensure stability, all branches follow this governance structure:
-
-```mermaid
-gitGraph
-   commit id: "Initial Release"
-   branch dev
-   checkout dev
-   commit id: "Phase 1-5 Stabilizations"
-   commit id: "Rust Native Engine"
-   commit id: "UI & Cloud Enhancements"
-   checkout main
-   merge dev tag: "v1.0.0" id: "Promote Release v1.0.0"
-   checkout dev
-   branch feature/ndk-profiler
-   commit id: "feat: add NDK profiler"
-   checkout dev
-   merge feature/ndk-profiler id: "Merge PR into dev"
-```
-
-### Branch Roles
-- **`main`**: Production & Stable Releases. Contains official, fully verified code. Direct pushes are disabled. Tagged with SemVer (`v1.0.0`, `v1.1.0`).
-- **`dev`**: Primary Integration Branch. Default working branch where feature branches merge.
-- **`feature/*` / `fix/*`**: Short-lived topic branches branched off `dev` and merged back into `dev` via PR or rebase.
 
 ---
 
@@ -185,8 +95,8 @@ gitGraph
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/Roni077/Dex2c-Android.git
-cd Dex2c-Android
+git clone https://github.com/Roni077/Dex2C-Android.git
+cd Dex2C-Android
 git checkout dev
 ```
 
@@ -233,7 +143,7 @@ Dex2C Studio is backed by a 23-test-file automated suite covering:
 
 ## 🤝 Contributing
 
-1. Fork or branch from `dev`:
+1. Create a feature branch off `dev`:
    ```bash
    git checkout dev
    git pull origin dev
