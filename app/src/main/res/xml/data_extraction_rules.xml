@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Exclude sensitive OAuth tokens, credentials, and encrypted preferences from Cloud Backup -->
+        <exclude domain="file" path="datastore/dex2c_cloud_prefs.preferences_pb" />
+        <exclude domain="sharedpref" path="dex2c_cloud_prefs.preferences_pb" />
+        <exclude domain="sharedpref" path="dex2c_secure_keystore.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <!-- Exclude sensitive OAuth tokens, credentials, and encrypted preferences from Device Transfer -->
+        <exclude domain="file" path="datastore/dex2c_cloud_prefs.preferences_pb" />
+        <exclude domain="sharedpref" path="dex2c_cloud_prefs.preferences_pb" />
+        <exclude domain="sharedpref" path="dex2c_secure_keystore.xml" />
+    </device-transfer>
+</data-extraction-rules>

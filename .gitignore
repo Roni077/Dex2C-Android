@@ -1,0 +1,94 @@
+# ==========================================
+# 6 Core Asset Pillars (Ignored from Repository)
+# ==========================================
+docs/
+graphify-out/
+.archify/
+scripts/
+public/
+.security-audit/
+
+# ==========================================
+# Built Application Files & Dalvik Payloads
+# ==========================================
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# ==========================================
+# Gradle Build Cache & Output
+# ==========================================
+.gradle/
+build/
+**/build/
+captures/
+.kotlin/
+
+# ==========================================
+# Android Studio & IntelliJ IDEA
+# ==========================================
+*.iml
+*.ipr
+*.iws
+.idea/
+!.idea/codeStyles/
+!.idea/copyright/
+!.idea/iconLoader.xml
+!.idea/vcs.xml
+
+# ==========================================
+# Local Configuration & Secrets
+# ==========================================
+local.properties
+/local.properties
+.env
+.env.*
+secrets.properties
+debug.keystore
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+
+# ==========================================
+# Native Build & C++ NDK
+# ==========================================
+.externalNativeBuild/
+**/.externalNativeBuild/
+.cxx/
+**/.cxx/
+*.o
+*.obj
+
+# ==========================================
+# Rust & Cargo Engine
+# ==========================================
+rust-engine/target/
+**/target/
+target/
+rust-engine/.cargo/
+**/*.rs.bk
+
+# ==========================================
+# Python & Scripts Cache
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+
+# ==========================================
+# Operating System Files
+# ==========================================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+.git_legacy_backup/
+.agents/

@@ -1,0 +1,254 @@
+package com.dex2c.studio.nativeengine
+
+import android.util.Log
+
+/**
+ * JNI bridge facade to the high-performance Rust native engine (`librust_dex2c.so`).
+ * Provides transparent, zero-friction fallback to Kotlin implementations when the native
+ * shared library is not compiled or loaded on the host platform.
+ */
+object DexNativeEngine {
+
+  private const val TAG = "DexNativeEngine"
+  private const val LIB_NAME = "rust_dex2c"
+
+  val isAvailable: Boolean =
+    try {
+      System.loadLibrary(LIB_NAME)
+      true
+    } catch (e: Throwable) {
+      safeLog(TAG, "Native Rust engine ($LIB_NAME) not loaded; utilizing Kotlin fallback: ${e.message}")
+      false
+    }
+
+  val nativeEngineVersion: String? by lazy {
+    if (isAvailable) {
+      runCatching { nativeGetVersion() }.getOrNull()
+    } else {
+      null
+    }
+  }
+
+  // --- External JNI Declarations ---
+
+  @JvmStatic
+  external fun nativeOpenDex(bytes: ByteArray, size: Int): Long
+
+  @JvmStatic
+  external fun nativeCloseDex(handle: Long)
+
+  @JvmStatic
+  external fun nativeGetClassCount(handle: Long): Int
+
+  @JvmStatic
+  external fun nativeGetStringCount(handle: Long): Int
+
+  data class NativeFilterResult(
+    val matchedClassIndices: Set<Int>,
+    val matchedMethodIndices: Set<Int>,
+  )
+
+  @JvmStatic
+  external fun nativeFilterMethods(
+    handle: Long,
+    rules: Array<String>,
+    allowInit: Boolean,
+    skipSynthetic: Boolean,
+  ): IntArray?
+
+  @JvmStatic
+  external fun nativeFilterClassesAndMethods(
+    handle: Long,
+    rules: Array<String>,
+    allowInit: Boolean,
+    skipSynthetic: Boolean,
+  ): IntArray?
+
+  @JvmStatic
+  external fun nativeParseDex(handle: Long): java.nio.ByteBuffer?
+
+  @JvmStatic
+  external fun nativeDisassembleClassSmali(
+    handle: Long,
+    classDefIdx: Int,
+  ): String?
+
+  @JvmStatic
+  external fun nativeTranspileMethod(
+    handle: Long,
+    classDefIdx: Int,
+    methodIdx: Int,
+  ): String?
+
+  @JvmStatic
+  external fun nativePatchDexMethods(
+    handle: Long,
+    methodIndices: IntArray,
+  ): Int
+
+  @JvmStatic
+  external fun nativeGenerateBuildFiles(
+    moduleName: String,
+    sourceFiles: Array<String>,
+  ): String?
+
+  @JvmStatic
+  external fun nativeGetVersion(): String?
+
+  // --- Safe Kotlin Helper APIs ---
+
+  /**
+   * Fast DEX class indexing via the Rust native engine with direct ByteBuffer decoding.
+   * Returns a list of [com.dex2c.studio.dex.DexClassInfo] instances, or null if the native engine is unavailable,
+   * encounters corrupted structures, or is running on a platform without native libraries.
+   */
+  fun parseClassesFast(
+    dexBytes: ByteArray,
+    sourceEntryName: String = "classes.dex",
+  ): List<com.dex2c.studio.dex.DexClassInfo>? {
+    if (!isAvailable || dexBytes.isEmpty()) return null
+
+    val handle = runCatching { nativeOpenDex(dexBytes, dexBytes.size) }.getOrDefault(0L)
+    if (handle == 0L) return null
+
+    return try {
+      val byteBuffer = nativeParseDex(handle) ?: return null
+      com.dex2c.studio.dex.D2cnBinaryDecoder.decodeClasses(byteBuffer, sourceEntryName)
+    } catch (e: Throwable) {
+      safeLog(TAG, "Native D2CN direct buffer decoding failed, falling back to Kotlin", e)
+      null
+    } finally {
+      runCatching { nativeCloseDex(handle) }
+    }
+  }
+
+  /**
+   * Evaluates filter rules over a raw DEX binary using the Rust SIMD RegexSet engine.
+   * Returns a set of matching method indices, or null if the native engine is unavailable.
+   */
+  fun evaluateFilterRules(
+    dexBytes: ByteArray,
+    rules: List<String>,
+    allowInit: Boolean = false,
+    skipSynthetic: Boolean = true,
+  ): Set<Int>? {
+    val res = evaluateFilterRulesFast(dexBytes, rules, allowInit, skipSynthetic)
+    return res?.matchedMethodIndices
+  }
+
+  /**
+   * Evaluates filter rules returning both matched class indices and method indices in a single fast JNI pass.
+   */
+  fun evaluateFilterRulesFast(
+    dexBytes: ByteArray,
+    rules: List<String>,
+    allowInit: Boolean = false,
+    skipSynthetic: Boolean = true,
+  ): NativeFilterResult? {
+    if (!isAvailable || dexBytes.isEmpty()) return null
+
+    val handle = runCatching { nativeOpenDex(dexBytes, dexBytes.size) }.getOrDefault(0L)
+    if (handle == 0L) return null
+
+    return try {
+      val packed =
+        nativeFilterClassesAndMethods(
+          handle = handle,
+          rules = rules.toTypedArray(),
+          allowInit = allowInit,
+          skipSynthetic = skipSynthetic,
+        ) ?: return null
+
+      if (packed.size < 2) return null
+      val classCount = packed[0]
+      val methodCount = packed[1]
+      val classes = HashSet<Int>(classCount)
+      val methods = HashSet<Int>(methodCount)
+
+      val classEnd = 2 + classCount
+      for (i in 2 until classEnd) {
+        classes.add(packed[i])
+      }
+      val methodEnd = classEnd + methodCount
+      for (i in classEnd until methodEnd) {
+        methods.add(packed[i])
+      }
+
+      NativeFilterResult(classes, methods)
+    } catch (e: Throwable) {
+      safeLog(TAG, "Native filter evaluation failed, falling back to Kotlin", e)
+      null
+    } finally {
+      runCatching { nativeCloseDex(handle) }
+    }
+  }
+
+  /**
+   * Disassembles a class to Smali text using the Rust engine.
+   */
+  fun disassembleSmaliFast(
+    dexBytes: ByteArray,
+    classDefIdx: Int,
+  ): String? {
+    if (!isAvailable || dexBytes.isEmpty() || classDefIdx < 0) return null
+    val handle = runCatching { nativeOpenDex(dexBytes, dexBytes.size) }.getOrDefault(0L)
+    if (handle == 0L) return null
+    return try {
+      nativeDisassembleClassSmali(handle, classDefIdx)
+    } catch (e: Throwable) {
+      safeLog(TAG, "Native Smali disassembly failed", e)
+      null
+    } finally {
+      runCatching { nativeCloseDex(handle) }
+    }
+  }
+
+  /**
+   * Transpiles a single method to C++17 JNI code using the Rust engine.
+   */
+  fun transpileMethodFast(
+    dexBytes: ByteArray,
+    classDefIdx: Int,
+    methodIdx: Int,
+  ): String? {
+    if (!isAvailable || dexBytes.isEmpty() || classDefIdx < 0 || methodIdx < 0) return null
+    val handle = runCatching { nativeOpenDex(dexBytes, dexBytes.size) }.getOrDefault(0L)
+    if (handle == 0L) return null
+    return try {
+      nativeTranspileMethod(handle, classDefIdx, methodIdx)
+    } catch (e: Throwable) {
+      safeLog(TAG, "Native C++ transpilation failed", e)
+      null
+    } finally {
+      runCatching { nativeCloseDex(handle) }
+    }
+  }
+
+  /**
+   * In-place patches methods in a DEX binary to native stubs and recomputes signatures.
+   */
+  fun patchDexMethodsFast(
+    dexBytes: ByteArray,
+    methodIndices: Set<Int>,
+  ): ByteArray? {
+    if (!isAvailable || dexBytes.isEmpty() || methodIndices.isEmpty()) return null
+    val copy = dexBytes.copyOf()
+    val handle = runCatching { nativeOpenDex(copy, copy.size) }.getOrDefault(0L)
+    if (handle == 0L) return null
+    return try {
+      val count = nativePatchDexMethods(handle, methodIndices.toIntArray())
+      if (count >= 0) copy else null
+    } catch (e: Throwable) {
+      safeLog(TAG, "Native DEX method patching failed", e)
+      null
+    } finally {
+      runCatching { nativeCloseDex(handle) }
+    }
+  }
+
+  private fun safeLog(tag: String, msg: String, tr: Throwable? = null) {
+    runCatching {
+      if (tr != null) Log.w(tag, msg, tr) else Log.d(tag, msg)
+    }
+  }
+}

@@ -1,0 +1,350 @@
+name: Android CI Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: "Run unit and Robolectric tests"
+        required: false
+        type: boolean
+        default: true
+      build_release:
+        description: "Build Release APK and AAB"
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  NODE_OPTIONS: "--no-deprecation"
+
+jobs:
+  verify-and-debug:
+    name: Verify Tests & Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          if [ -d "${ANDROID_HOME:-}" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          fi
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Make Gradlew executable
+        shell: bash
+        run: chmod +x gradlew
+
+      - name: Prepare debug keystore
+        shell: bash
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storetype PKCS12 \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -alias androiddebugkey \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Cache Cargo & NDK build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-ndk
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            rust-engine/target
+          key: ${{ runner.os }}-cargo-ndk-${{ hashFiles('rust-engine/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-ndk-
+
+      - name: Resolve Android NDK and install cargo-ndk
+        shell: bash
+        run: |
+          if [ -z "${ANDROID_NDK_HOME:-}" ]; then
+            LATEST_NDK=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | sort -V | tail -n 1)
+            if [ -n "$LATEST_NDK" ]; then
+              echo "ANDROID_NDK_HOME=$LATEST_NDK" >> "$GITHUB_ENV"
+              echo "Resolved ANDROID_NDK_HOME=$LATEST_NDK"
+            fi
+          fi
+          if ! command -v cargo-ndk &> /dev/null; then
+            cargo install cargo-ndk
+          fi
+
+      - name: Run Rust unit tests
+        shell: bash
+        run: |
+          cd rust-engine
+          cargo test --verbose
+
+      - name: Build Rust Native Engine (.so)
+        shell: bash
+        run: |
+          cd rust-engine
+          cargo ndk -t arm64-v8a -t armeabi-v7a -o ../app/src/main/jniLibs build --release
+          echo "=== Built JNI Libraries ==="
+          ls -la ../app/src/main/jniLibs/arm64-v8a/
+          ls -la ../app/src/main/jniLibs/armeabi-v7a/
+
+      - name: Run unit and Robolectric tests
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Assemble Debug APKs
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload Debug APK artifact (arm64-v8a)
+        uses: actions/upload-artifact@v6
+        with:
+          name: dex2c-studio-arm64-v8a-debug
+          path: app/build/outputs/apk/debug/*arm64-v8a*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Debug APK artifact (armeabi-v7a)
+        uses: actions/upload-artifact@v6
+        with:
+          name: dex2c-studio-armeabi-v7a-debug
+          path: app/build/outputs/apk/debug/*armeabi-v7a*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Debug APK artifact (universal)
+        uses: actions/upload-artifact@v6
+        with:
+          name: dex2c-studio-universal-debug
+          path: app/build/outputs/apk/debug/*universal*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload unit test reports
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.run_tests) }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: unit-test-reports
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Write Debug & Test summary
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}" = "true" ]; then
+            TEST_STATUS='Executed (:app:testDebugUnitTest)'
+          else
+            TEST_STATUS='Skipped'
+          fi
+          {
+            echo "### Debug & Test Stage"
+            echo "- **JDK**: 21 (Temurin)"
+            echo "- **Gradle**: 9.4.1 (Wrapper)"
+            echo "- **Rust Native Engine**: \`librust_dex2c.so\` (arm64-v8a, armeabi-v7a) via \`cargo-ndk\`"
+            echo "- **Unit Tests**: ${TEST_STATUS}"
+            echo "- **Debug APKs**: :app:assembleDebug -> artifacts: \`dex2c-studio-arm64-v8a-debug\`, \`dex2c-studio-armeabi-v7a-debug\`, \`dex2c-studio-universal-debug\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release-build:
+    name: Build Release APKs
+    needs: verify-and-debug
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_release }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          if [ -d "${ANDROID_HOME:-}" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          fi
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Make Gradlew executable
+        shell: bash
+        run: chmod +x gradlew
+
+      - name: Configure debug and release signing keystores
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD_SECRET: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD_SECRET: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD_SECRET" ] && [ -n "$KEY_PASSWORD_SECRET" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release-upload-key.jks"
+            {
+              echo "KEYSTORE_PATH=$RUNNER_TEMP/release-upload-key.jks"
+              echo "STORE_PASSWORD=$STORE_PASSWORD_SECRET"
+              echo "KEY_PASSWORD=$KEY_PASSWORD_SECRET"
+              echo "SIGNING_MODE=Repository Release Secrets"
+            } >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -v \
+              -keystore "$RUNNER_TEMP/ci-verification-key.jks" \
+              -storetype PKCS12 \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 1 \
+              -alias upload \
+              -storepass ci-verify-pass \
+              -keypass ci-verify-pass \
+              -dname "CN=CI Verification,O=Dex2C Studio,C=US"
+            {
+              echo "KEYSTORE_PATH=$RUNNER_TEMP/ci-verification-key.jks"
+              echo "STORE_PASSWORD=ci-verify-pass"
+              echo "KEY_PASSWORD=ci-verify-pass"
+              echo "SIGNING_MODE=Ephemeral CI Verification Key (configure RELEASE_KEYSTORE_BASE64, STORE_PASSWORD, and KEY_PASSWORD secrets for production signing)"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Cache Cargo & NDK build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-ndk
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            rust-engine/target
+          key: ${{ runner.os }}-cargo-ndk-${{ hashFiles('rust-engine/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-ndk-
+
+      - name: Resolve Android NDK and install cargo-ndk
+        shell: bash
+        run: |
+          if [ -z "${ANDROID_NDK_HOME:-}" ]; then
+            LATEST_NDK=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | sort -V | tail -n 1)
+            if [ -n "$LATEST_NDK" ]; then
+              echo "ANDROID_NDK_HOME=$LATEST_NDK" >> "$GITHUB_ENV"
+              echo "Resolved ANDROID_NDK_HOME=$LATEST_NDK"
+            fi
+          fi
+          if ! command -v cargo-ndk &> /dev/null; then
+            cargo install cargo-ndk
+          fi
+
+      - name: Run Rust unit tests
+        shell: bash
+        run: |
+          cd rust-engine
+          cargo test --verbose
+
+      - name: Build Rust Native Engine (.so)
+        shell: bash
+        run: |
+          cd rust-engine
+          cargo ndk -t arm64-v8a -t armeabi-v7a -o ../app/src/main/jniLibs build --release
+          echo "=== Built JNI Libraries ==="
+          ls -la ../app/src/main/jniLibs/arm64-v8a/
+          ls -la ../app/src/main/jniLibs/armeabi-v7a/
+
+      - name: Assemble Release APKs
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Upload Release APK artifact (arm64-v8a)
+        uses: actions/upload-artifact@v6
+        with:
+          name: dex2c-studio-arm64-v8a-release
+          path: app/build/outputs/apk/release/*arm64-v8a*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Release APK artifact (armeabi-v7a)
+        uses: actions/upload-artifact@v6
+        with:
+          name: dex2c-studio-armeabi-v7a-release
+          path: app/build/outputs/apk/release/*armeabi-v7a*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Release APK artifact (universal)
+        uses: actions/upload-artifact@v6
+        with:
+          name: dex2c-studio-universal-release
+          path: app/build/outputs/apk/release/*universal*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Write Release Build summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Release Build Stage"
+            echo "- **Gradle**: 9.4.1 (Wrapper)"
+            echo "- **Rust Native Engine**: \`librust_dex2c.so\` (arm64-v8a, armeabi-v7a) via \`cargo-ndk\`"
+            echo "- **Signing Mode**: ${SIGNING_MODE:-Unknown}"
+            echo "- **Release APKs**: \`:app:assembleRelease\` -> artifacts: \`dex2c-studio-arm64-v8a-release\`, \`dex2c-studio-armeabi-v7a-release\`, \`dex2c-studio-universal-release\`"
+            echo ""
+            echo "#### Generated Release APKs & Size Breakdown"
+            for apk in app/build/outputs/apk/release/*.apk; do
+              [ -f "$apk" ] || continue
+              APK_SIZE=$(ls -lh "$apk" | awk '{print $5}')
+              DEX_SIZE=$(unzip -l "$apk" "classes*.dex" 2>/dev/null | awk '{sum+=$1} END {printf "%.2f MB\n", sum/1024/1024}')
+              echo "- \`$(basename "$apk")\`: **$APK_SIZE** (total dex: **$DEX_SIZE**)"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
