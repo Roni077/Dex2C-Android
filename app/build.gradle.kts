@@ -29,11 +29,6 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-    ndk {
-      abiFilters.clear()
-      abiFilters += listOf("arm64-v8a")
-    }
-
     val enableDexEditing =
       providers.gradleProperty("dex2c.enableDexEditing")
         .map { it.toBoolean() }
@@ -44,7 +39,10 @@ android {
 
   splits {
     abi {
-      isEnable = false
+      isEnable = true
+      reset()
+      include("arm64-v8a", "armeabi-v7a")
+      isUniversalApk = true
     }
   }
 
