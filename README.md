@@ -141,7 +141,6 @@ Dex2c-Android/
 │   ├── crates/dex2c-toolchain/  # NDK / Clang toolchain invocations
 │   └── crates/dex2c-editor/     # High-performance code editor tokenization
 ├── scripts/                     # PowerShell and Python build/maintenance utilities
-├── WORKFLOW.md                  # Comprehensive end-to-end technical blueprint
 └── README.md                    # Repository documentation (this file)
 ```
 

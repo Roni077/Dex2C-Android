@@ -196,11 +196,7 @@ object WorkflowDocumentationRepository {
     )
 
   fun loadRawMarkdown(context: Context): String {
-    return runCatching {
-      context.assets.open("WORKFLOW.md").bufferedReader().use { it.readText() }
-    }.getOrElse {
-      buildFallbackMarkdown()
-    }
+    return buildFallbackMarkdown()
   }
 
   fun buildFallbackMarkdown(): String =
@@ -299,7 +295,7 @@ fun WorkflowGuideDialog(
                 overflow = TextOverflow.Ellipsis,
               )
               Text(
-                text = "WORKFLOW.md • End-to-End Guide & Technical Pipeline",
+                text = "End-to-End Guide & Technical Pipeline",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

@@ -292,7 +292,7 @@
     <string name="settings_reset_all_dialog_desc">Restores theme, code viewer, DEX parser, transpiler pipeline, and NDK settings to factory defaults.</string>
     <string name="settings_also_sign_out_github">Also sign out of GitHub</string>
     <string name="settings_sign_out_desc">Clears saved OAuth token &amp; workspace repo link</string>
-    <string name="settings_about_workflow_guide">App Workflow &amp; Architecture (WORKFLOW.md)</string>
+    <string name="settings_about_workflow_guide">App Workflow &amp; Architecture</string>
     <string name="settings_open_workflow_guide">Open Workflow &amp; Architecture Guide</string>
     <string name="settings_bundled_toolchains">Bundled Toolchains &amp; Integrations</string>
 
