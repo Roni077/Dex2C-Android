@@ -23,6 +23,7 @@ import com.android.tools.smali.dexlib2.writer.pool.DexPool
 import com.android.tools.smali.smali.smaliFlexLexer
 import com.android.tools.smali.smali.smaliParser
 import com.android.tools.smali.smali.smaliTreeWalker
+import com.dex2c.studio.nativeengine.DexNativeEngine
 import org.antlr.runtime.CommonTokenStream
 import org.antlr.runtime.RecognitionException
 import org.antlr.runtime.tree.CommonTree
@@ -167,6 +168,16 @@ object SmaliDexCompiler {
         sourceLabel = dex.sourceLabel,
         entryName = dex.entryName,
       )
+
+      val verifyError =
+        DexEditVerifier.verifyCompiledClassBytecode(
+          dexBytes = newBytes,
+          parsed = updatedParsed,
+          targetDescriptor = compiledClassDef.type,
+        )
+      if (verifyError != null) {
+        return DexCompileResult.Error(message = "Bytecode verification failed: $verifyError")
+      }
 
       val duration = ((System.nanoTime() - startNanos) / 1_000_000L).coerceAtLeast(1L)
       DexCompileResult.Success(
@@ -443,6 +454,68 @@ object SmaliDexCompiler {
         }
       }
     }
+  }
+
+  data class ApkRepackSignResult(
+    val isSignedV2V3: Boolean,
+    val isPageAligned16Kb: Boolean,
+    val entryCount: Int,
+  )
+
+  /**
+   * Repacks [originalApkStream] (or builds a new DEX container zip when null) and signs
+   * the resulting archive with pure-Rust `apkparser::sign` (v2+v3 enabled, v1 disabled,
+   * 16384-byte `.so` alignment). Falls back transparently to unsigned aligned ZIP when the
+   * native library is unavailable.
+   */
+  fun repackAndAlignSignApk(
+    originalApkStream: InputStream?,
+    patchedDexByEntryName: Map<String, ByteArray>,
+    outputStream: OutputStream,
+    privateKeyDer: ByteArray? = null,
+    certificateDer: ByteArray? = null,
+  ): ApkRepackSignResult {
+    val bufferOut = ByteArrayOutputStream()
+    if (originalApkStream != null) {
+      repackApkWithPatchedDexes(
+        originalApkStream = originalApkStream,
+        patchedDexByEntryName = patchedDexByEntryName,
+        outputStream = bufferOut,
+      )
+    } else {
+      bufferOut.write(buildDexContainerZip(patchedDexByEntryName))
+    }
+    val unsignedBytes = bufferOut.toByteArray()
+    val signedBytes =
+      if (DexNativeEngine.isAvailable) {
+        DexNativeEngine.alignAndSignApkFast(
+          apkBytes = unsignedBytes,
+          privateKeyDer = privateKeyDer,
+          certDer = certificateDer,
+          enableV1 = false,
+          enableV2 = true,
+          enableV3 = true,
+          pageAlignment = 16384,
+        )
+      } else {
+        null
+      }
+
+    if (signedBytes != null) {
+      outputStream.write(signedBytes)
+      return ApkRepackSignResult(
+        isSignedV2V3 = true,
+        isPageAligned16Kb = true,
+        entryCount = patchedDexByEntryName.size,
+      )
+    }
+
+    outputStream.write(unsignedBytes)
+    return ApkRepackSignResult(
+      isSignedV2V3 = false,
+      isPageAligned16Kb = originalApkStream != null,
+      entryCount = patchedDexByEntryName.size,
+    )
   }
 
   fun buildDexContainerZip(dexByEntryName: Map<String, ByteArray>): ByteArray {

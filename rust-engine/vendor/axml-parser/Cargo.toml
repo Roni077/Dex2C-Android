@@ -1,0 +1,20 @@
+[package]
+name = "axml-parser"
+version = "0.0.2"
+edition = "2021"
+description = "Android binary XML (AXML) and resource (ARSC) parser in pure Rust"
+license = "Apache-2.0"
+authors = ["androguard/axml contributors"]
+repository = "https://github.com/androguard/axml"
+
+[lib]
+name = "axml_parser"
+crate-type = ["rlib"]
+
+[features]
+default = []
+
+[dependencies]
+byteorder = "1.5"
+quick-xml = "0.36"
+once_cell = "1.19"

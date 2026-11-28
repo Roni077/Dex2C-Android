@@ -1,4 +1,5 @@
 //! High-speed SIMD RegexSet filter rule evaluator for Dex2C Studio.
+//! Single shared implementation powering both `nativeFilterMethods` and `nativeFilterClassesAndMethods`.
 
 use crate::parser::DexFile;
 use regex::RegexSet;
@@ -12,6 +13,7 @@ pub struct CompiledFilter {
     pub skip_synthetic: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FilterMatchResult {
     pub matched_classes: Vec<i32>,
     pub matched_methods: Vec<i32>,
@@ -71,7 +73,7 @@ impl CompiledFilter {
         }
 
         // ACC_SYNTHETIC = 0x1000
-        if self.skip_synthetic && (access_flags & 0x1000 != 0) {
+        if self.skip_synthetic && (access_flags & 0x1000 != 0 || method_name == "<clinit>") {
             return false;
         }
 
@@ -103,7 +105,10 @@ impl CompiledFilter {
                 || self.exact_matches.contains(&dcc_target)
                 || self.exact_matches.contains(&java_target)
                 || self.exact_matches.iter().any(|m| {
-                    target.starts_with(m) || dcc_target.starts_with(m) || m.starts_with(&dcc_target) || m.starts_with(&target)
+                    target.starts_with(m)
+                        || dcc_target.starts_with(m)
+                        || m.starts_with(&dcc_target)
+                        || m.starts_with(&target)
                 })
             {
                 return true;
@@ -118,6 +123,7 @@ impl CompiledFilter {
     }
 }
 
+#[inline]
 pub fn to_java_name(desc: &str) -> String {
     let s = desc.strip_prefix('L').unwrap_or(desc);
     let s = s.strip_suffix(';').unwrap_or(s);
@@ -131,27 +137,31 @@ pub fn evaluate_dex_methods_and_classes(
     skip_synthetic: bool,
 ) -> FilterMatchResult {
     let filter = CompiledFilter::new(rules, allow_init, skip_synthetic);
-    let mut matched_classes = Vec::new();
-    let mut matched_methods = Vec::new();
+    let mut matched_classes = Vec::with_capacity(256);
+    let mut matched_methods = Vec::with_capacity(1024);
+    let mut last_matched_class_def = u32::MAX;
 
-    for c_idx in 0..dex.class_def_count() {
-        if let Some(cls) = dex.get_class_def_full(c_idx) {
-            let mut class_matched = false;
-            for m in cls.direct_methods.iter().chain(cls.virtual_methods.iter()) {
-                let is_init = m.name == "<init>" || m.name == "<clinit>";
-                if filter.matches(cls.descriptor, m.name, is_init, m.access_flags) {
-                    matched_methods.push(m.method_idx as i32);
-                    class_matched = true;
-                }
-            }
-            if class_matched {
-                matched_classes.push(cls.class_def_idx as i32);
+    dex.for_each_method(|m| {
+        if m.code_off > 0 && filter.matches(m.class_desc, m.method_name, m.is_init, m.access_flags) {
+            matched_methods.push(m.method_idx as i32);
+            if m.class_def_idx != last_matched_class_def {
+                matched_classes.push(m.class_def_idx as i32);
+                last_matched_class_def = m.class_def_idx;
             }
         }
-    }
+    });
 
     FilterMatchResult {
         matched_classes,
         matched_methods,
     }
+}
+
+pub fn evaluate_dex_methods(
+    dex: &DexFile,
+    rules: &[&str],
+    allow_init: bool,
+    skip_synthetic: bool,
+) -> Vec<i32> {
+    evaluate_dex_methods_and_classes(dex, rules, allow_init, skip_synthetic).matched_methods
 }

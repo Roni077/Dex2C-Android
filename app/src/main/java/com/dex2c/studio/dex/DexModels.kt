@@ -437,6 +437,7 @@ fun inferDominantDexPackageName(classes: List<DexClassInfo>): String? {
 data class ApkDexEntry(
   val entryName: String,
   val byteSize: Int,
+  val isSplitFromDex041: Boolean = false,
 )
 
 data class DexParsedFile(

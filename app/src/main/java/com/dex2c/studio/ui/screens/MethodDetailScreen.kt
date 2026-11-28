@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.dex2c.studio.R
 import com.dex2c.studio.dex.formatAccessFlags
 import com.dex2c.studio.ui.MethodInspectionState
+import com.dex2c.studio.ui.components.CodeLanguage
 import com.dex2c.studio.ui.components.DalvikCfgViewer
 import com.dex2c.studio.ui.components.DalvikInstructionViewer
 import com.dex2c.studio.ui.components.DexMethodMetaViewer
@@ -97,6 +98,10 @@ fun MethodDetailScreen(
       }
     }
   val smaliLines = remember(resolvedMethodSmali) { resolvedMethodSmali.lines() }
+  val resolvedJavaCode =
+    remember(inspection.decompiledJava, inspection.dexClass, inspection.method, inspection.instructions.size) {
+      inspection.decompiledJava?.takeIf { it.isNotBlank() } ?: buildJavaFallbackStub(inspection)
+    }
 
   Column(modifier = modifier.fillMaxSize()) {
     TopAppBar(
@@ -141,6 +146,7 @@ fun MethodDetailScreen(
             val activeCopyText =
               when (selectedTab) {
                 4 -> resolvedMethodSmali
+                5 -> resolvedJavaCode
                 else -> inspection.transpiledC
               }
             onCopyCCode(activeCopyText)
@@ -196,22 +202,30 @@ fun MethodDetailScreen(
             SegmentedButton(
               selected = selectedTab == 0 || selectedTab == 2,
               onClick = { selectedTab = 2 },
-              shape = SegmentedButtonDefaults.itemShape(0, 4),
+              shape = SegmentedButtonDefaults.itemShape(0, 5),
             ) {
               Text("${stringResource(R.string.tab_dalvik)} + ${stringResource(R.string.tab_transpiled_c)}")
             }
             SegmentedButton(
               selected = selectedTab == 4,
               onClick = { selectedTab = 4 },
-              shape = SegmentedButtonDefaults.itemShape(1, 4),
+              shape = SegmentedButtonDefaults.itemShape(1, 5),
               modifier = Modifier.testTag("tab_method_smali_wide"),
             ) {
               Text(stringResource(R.string.tab_smali))
             }
             SegmentedButton(
+              selected = selectedTab == 5,
+              onClick = { selectedTab = 5 },
+              shape = SegmentedButtonDefaults.itemShape(2, 5),
+              modifier = Modifier.testTag("tab_method_java_wide"),
+            ) {
+              Text(stringResource(R.string.tab_java))
+            }
+            SegmentedButton(
               selected = selectedTab == 1,
               onClick = { selectedTab = 1 },
-              shape = SegmentedButtonDefaults.itemShape(2, 4),
+              shape = SegmentedButtonDefaults.itemShape(3, 5),
               modifier = Modifier.testTag("tab_blocks_wide"),
             ) {
               Text(stringResource(R.string.tab_blocks))
@@ -219,7 +233,7 @@ fun MethodDetailScreen(
             SegmentedButton(
               selected = selectedTab == 3,
               onClick = { selectedTab = 3 },
-              shape = SegmentedButtonDefaults.itemShape(3, 4),
+              shape = SegmentedButtonDefaults.itemShape(4, 5),
               modifier = Modifier.testTag("tab_dex_meta_wide"),
             ) {
               Text(stringResource(R.string.tab_dex_meta))
@@ -241,6 +255,12 @@ fun MethodDetailScreen(
               SmaliSyntaxCodeViewer(
                 lines = smaliLines,
                 modifier = Modifier.fillMaxSize(),
+              )
+            5 ->
+              SyntaxCodeViewer(
+                code = resolvedJavaCode,
+                language = CodeLanguage.JAVA,
+                modifier = Modifier.fillMaxSize().testTag("java_code_viewer"),
               )
             else ->
               Row(
@@ -280,9 +300,10 @@ fun MethodDetailScreen(
           when (selectedTab) {
             0 -> 0
             4 -> 1
-            1 -> 2
-            2 -> 3
-            else -> 4
+            5 -> 2
+            1 -> 3
+            2 -> 4
+            else -> 5
           }
         Column(modifier = Modifier.fillMaxSize().padding(bottom = 12.dp)) {
           PrimaryTabRow(selectedTabIndex = visualTabIndex) {
@@ -297,6 +318,12 @@ fun MethodDetailScreen(
               onClick = { selectedTab = 4 },
               text = { Text(stringResource(R.string.tab_smali), maxLines = 1, overflow = TextOverflow.Ellipsis) },
               modifier = Modifier.testTag("tab_method_smali"),
+            )
+            Tab(
+              selected = selectedTab == 5,
+              onClick = { selectedTab = 5 },
+              text = { Text(stringResource(R.string.tab_java), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+              modifier = Modifier.testTag("tab_method_java"),
             )
             Tab(
               selected = selectedTab == 1,
@@ -336,6 +363,12 @@ fun MethodDetailScreen(
                   lines = smaliLines,
                   modifier = Modifier.fillMaxSize(),
                 )
+              5 ->
+                SyntaxCodeViewer(
+                  code = resolvedJavaCode,
+                  language = CodeLanguage.JAVA,
+                  modifier = Modifier.fillMaxSize().testTag("java_code_viewer"),
+                )
               1 ->
                 DalvikCfgViewer(
                   cfg = inspection.cfg,
@@ -358,4 +391,63 @@ fun MethodDetailScreen(
       }
     }
   }
+}
+
+private fun buildJavaFallbackStub(inspection: MethodInspectionState): String {
+  val flags = formatAccessFlags(inspection.method.accessFlags, isMethod = true)
+  val flagPart = if (flags.isBlank()) "" else "$flags "
+  val proto = inspection.method.methodRef.proto
+  val params =
+    proto.parameterTypes.mapIndexed { idx, desc -> "${descriptorToReadableJava(desc)} p$idx" }.joinToString(", ")
+  val ret = descriptorToReadableJava(proto.returnType)
+  val name = inspection.method.methodRef.name
+  val sig =
+    when (name) {
+      "<init>" -> "${inspection.dexClass.simpleName}($params)"
+      "<clinit>" -> "static"
+      else -> "$ret $name($params)"
+    }
+  return buildString {
+    appendLine("// ${inspection.dexClass.fullName}")
+    appendLine("// Java decompilation unavailable (abstract/native method or native engine inactive)")
+    if (name == "<clinit>") {
+      appendLine("static {")
+      append("}")
+    } else {
+      appendLine("$flagPart$sig {")
+      appendLine("    // ${inspection.instructions.size} Dalvik instruction(s)")
+      append("}")
+    }
+  }
+}
+
+private fun descriptorToReadableJava(descriptor: String): String {
+  if (descriptor.isEmpty()) return "void"
+  var dims = 0
+  var idx = 0
+  while (idx < descriptor.length && descriptor[idx] == '[') {
+    dims++
+    idx++
+  }
+  val base =
+    when (descriptor.substring(idx)) {
+      "V" -> "void"
+      "Z" -> "boolean"
+      "B" -> "byte"
+      "S" -> "short"
+      "C" -> "char"
+      "I" -> "int"
+      "J" -> "long"
+      "F" -> "float"
+      "D" -> "double"
+      else -> {
+        val raw = descriptor.substring(idx)
+        if (raw.startsWith("L") && raw.endsWith(";")) {
+          raw.substring(1, raw.length - 1).substringAfterLast('/').replace('$', '.')
+        } else {
+          raw
+        }
+      }
+    }
+  return if (dims == 0) base else base + "[]".repeat(dims)
 }

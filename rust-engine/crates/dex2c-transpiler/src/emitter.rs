@@ -1,32 +1,33 @@
 //! Dalvik-to-C++ instruction emitter.
 //! Transpiles Dalvik bytecode instructions into optimized C++17 JNI method implementations.
 
-use dex2c_core::{JniBindingStyle, TranspilerConfig};
-use dex2c_dex::{DalvikDisassembler, DalvikInstruction, DexClassDefFull, DexFile, DexMethodMeta, OpcodeGroup};
+use dex2c_core::TranspilerConfig;
+use dex2c_dex::{
+    DalvikDisassembler, DalvikInstruction, DexClassDefFull, DexFile, DexMethodMeta, OpcodeGroup,
+};
 use std::collections::HashSet;
 use std::fmt::Write;
 
 pub struct CppEmitter<'a> {
-    pub dex: &'a DexFile<'a>,
+    pub dex: &'a DexFile,
     pub config: &'a TranspilerConfig,
 }
 
 impl<'a> CppEmitter<'a> {
-    pub fn new(dex: &'a DexFile<'a>, config: &'a TranspilerConfig) -> Self {
+    pub fn new(dex: &'a DexFile, config: &'a TranspilerConfig) -> Self {
         Self { dex, config }
     }
 
     pub fn transpile_method(
         &self,
-        class_def: &DexClassDefFull,
-        method: &DexMethodMeta,
+        class_def: &DexClassDefFull<'_>,
+        method: &DexMethodMeta<'_>,
     ) -> String {
         let mut out = String::with_capacity(2048);
 
-        let c_func_name = mangle_c_function_name(class_def.descriptor, method.name);
-        let ret_jni_type = descriptor_to_jni_type(method.return_type);
+        let c_func_name = mangle_c_function_name(&class_def.descriptor, &method.name);
+        let ret_jni_type = descriptor_to_jni_type(&method.return_type);
 
-        // Function signature
         let is_static = (method.access_flags & 0x0008) != 0;
         let self_arg = if is_static { "jclass clazz" } else { "jobject thiz" };
 
@@ -36,19 +37,16 @@ impl<'a> CppEmitter<'a> {
             ret_jni_type, c_func_name, self_arg
         );
 
-        // Parameter list
-        for (idx, &param_type) in method.param_types.iter().enumerate() {
+        for (idx, param_type) in method.param_types.iter().enumerate() {
             let jni_t = descriptor_to_jni_type(param_type);
             let _ = write!(out, ", {} p{}", jni_t, idx);
         }
         let _ = writeln!(out, ") {{");
 
-        // Code body
         if let Some(ref code) = method.code {
             let _ = writeln!(out, "    d2c_reg regs[{}];", code.registers_size.max(1));
             let _ = writeln!(out, "    memset(regs, 0, sizeof(regs));");
 
-            // Initialize parameter registers
             let ins_count = code.ins_size as usize;
             let reg_count = code.registers_size as usize;
             let param_start = if reg_count >= ins_count { reg_count - ins_count } else { 0 };
@@ -58,36 +56,38 @@ impl<'a> CppEmitter<'a> {
                 let _ = writeln!(out, "    regs[{}].l = thiz;", cur_reg);
                 cur_reg += 1;
             }
-            for (p_idx, &param_type) in method.param_types.iter().enumerate() {
+            for (p_idx, param_type) in method.param_types.iter().enumerate() {
                 let field = jvalue_field_for_desc(param_type);
                 let _ = writeln!(out, "    regs[{}].{} = p{};", cur_reg, field, p_idx);
                 cur_reg += 1;
             }
 
-            // Disassemble and emit instructions
-            if let Some(units) = self.dex.get_insns_units(code) {
+            if let Some(bytes) = self.dex.get_insns_bytes(code) {
                 let disasm = DalvikDisassembler::new(self.dex);
-                let insns = disasm.disassemble_code(units);
+                let insns = disasm.disassemble_bytes(bytes);
 
-                // Collect label branch targets
                 let mut label_targets = HashSet::new();
                 for insn in &insns {
                     if let Some(target) = insn.target_offset {
-                        let target_pc = (insn.offset as i32 + target) as u32;
-                        label_targets.insert(target_pc);
+                        let target_pc = insn.offset as i32 + target;
+                        if target_pc >= 0 {
+                            label_targets.insert(target_pc as u32);
+                        }
                     }
                 }
 
                 for insn in &insns {
+                    if insn.group == OpcodeGroup::Payload {
+                        continue;
+                    }
                     if label_targets.contains(&insn.offset) {
                         let _ = writeln!(out, "L_{:04x}:", insn.offset);
                     }
-                    self.emit_instruction(&mut out, insn, method.return_type);
+                    self.emit_instruction(&mut out, insn, &method.return_type);
                 }
             }
         } else {
-            // Native or abstract fallback return
-            let _ = writeln!(out, "    {}", default_return_stmt(method.return_type));
+            let _ = writeln!(out, "    {}", default_return_stmt(&method.return_type));
         }
 
         let _ = writeln!(out, "}}\n");
@@ -99,9 +99,14 @@ impl<'a> CppEmitter<'a> {
             OpcodeGroup::Nop => {
                 let _ = writeln!(out, "    /* nop */");
             }
+            OpcodeGroup::Payload => {}
             OpcodeGroup::Move => {
                 if insn.registers.len() >= 2 {
-                    let _ = writeln!(out, "    regs[{}] = regs[{}];", insn.registers[0], insn.registers[1]);
+                    let _ = writeln!(
+                        out,
+                        "    regs[{}] = regs[{}];",
+                        insn.registers[0], insn.registers[1]
+                    );
                 }
             }
             OpcodeGroup::Const => {
@@ -111,16 +116,20 @@ impl<'a> CppEmitter<'a> {
                     }
                 } else if let Some(idx) = insn.index {
                     if !insn.registers.is_empty() {
-                        if insn.mnemonic == "const-string" || insn.mnemonic == "const-string/jumbo" {
-                            let s = self.dex.get_string(idx).unwrap_or("");
+                        if insn.mnemonic == "const-string" || insn.mnemonic == "const-string/jumbo"
+                        {
+                            let s = self.dex.get_string(idx);
                             let _ = writeln!(
                                 out,
                                 "    regs[{}].l = env->NewStringUTF(\"{}\");",
-                                insn.registers[0], escape_c_string(s)
+                                insn.registers[0],
+                                escape_c_string(s.as_deref().unwrap_or(""))
                             );
                         } else if insn.mnemonic == "const-class" {
-                            let type_desc = self.dex.get_type_descriptor(idx).unwrap_or("Ljava/lang/Object;");
-                            let class_name = descriptor_to_class_name(type_desc);
+                            let type_desc = self.dex.get_type_descriptor(idx);
+                            let class_name = descriptor_to_class_name(
+                                type_desc.as_deref().unwrap_or("Ljava/lang/Object;"),
+                            );
                             let _ = writeln!(
                                 out,
                                 "    regs[{}].l = env->FindClass(\"{}\");",
@@ -210,8 +219,17 @@ impl<'a> CppEmitter<'a> {
                     );
                 }
             }
-            OpcodeGroup::InvokeVirtual | OpcodeGroup::InvokeStatic | OpcodeGroup::InvokeDirect => {
-                let _ = writeln!(out, "    /* invoke #{:?} */", insn.index);
+            OpcodeGroup::InvokeVirtual
+            | OpcodeGroup::InvokeSuper
+            | OpcodeGroup::InvokeDirect
+            | OpcodeGroup::InvokeStatic
+            | OpcodeGroup::InvokeInterface
+            | OpcodeGroup::InvokeVirtualRange
+            | OpcodeGroup::InvokeSuperRange
+            | OpcodeGroup::InvokeDirectRange
+            | OpcodeGroup::InvokeStaticRange
+            | OpcodeGroup::InvokeInterfaceRange => {
+                let _ = writeln!(out, "    /* {} #{:?} */", insn.mnemonic, insn.index);
             }
             _ => {
                 let _ = writeln!(out, "    /* opcode: {} */", insn.mnemonic);

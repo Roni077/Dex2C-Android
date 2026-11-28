@@ -118,6 +118,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.dex2c.studio.apk.PickerTab
+import com.dex2c.studio.nativeengine.DexNativeEngine
 import com.dex2c.studio.cloud.CloudBuildNotifier
 import com.dex2c.studio.cloud.CloudDeepLinkTarget
 import com.dex2c.studio.cloud.WorkflowLogViewerState
@@ -785,7 +786,8 @@ fun Dex2cApp(
                       .removeSuffix(".apk")
                       .removeSuffix(".dex")
                       .replace(Regex("[^A-Za-z0-9._-]"), "_")
-                  exportPatchedApkLauncher.launch("${baseName}_patched_unsigned.apk")
+                  val suffix = if (DexNativeEngine.isAvailable) "patched_signed.apk" else "patched_unsigned.apk"
+                  exportPatchedApkLauncher.launch("${baseName}_$suffix")
                 },
                 onDeleteDexClass = { cls ->
                   viewModel.deleteDexClasses(setOf(cls.descriptor), cls.sourceEntryName)

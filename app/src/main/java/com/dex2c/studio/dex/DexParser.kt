@@ -32,8 +32,12 @@ object DexParser {
         val entry = enumeration.nextElement()
         if (!entry.isDirectory && entry.name.endsWith(".dex", ignoreCase = true)) {
           val dexBytes = zip.getInputStream(entry).use { it.readBytes() }
-          entries += ApkDexEntry(entry.name, dexBytes.size)
-          map[entry.name] = dexBytes
+          val split = splitDex041ContainerIfNeeded(entry.name, dexBytes)
+          val isSplit = split.size > 1
+          split.forEach { (logicalName, logicalBytes) ->
+            entries += ApkDexEntry(logicalName, logicalBytes.size, isSplitFromDex041 = isSplit)
+            map[logicalName] = logicalBytes
+          }
         }
       }
     }
@@ -53,21 +57,37 @@ object DexParser {
     if (read == 4 && magic[0] == 'd'.code.toByte() && magic[1] == 'e'.code.toByte() && magic[2] == 'x'.code.toByte() && magic[3] == '\n'.code.toByte()) {
       val bytes = buffered.readBytes()
       val name = if (fileName.endsWith(".dex", ignoreCase = true)) fileName else "classes.dex"
-      return listOf(ApkDexEntry(name, bytes.size)) to mapOf(name to bytes)
+      val split = splitDex041ContainerIfNeeded(name, bytes)
+      val isSplit = split.size > 1
+      val entries = split.map { (n, b) -> ApkDexEntry(n, b.size, isSplitFromDex041 = isSplit) }
+      val map = split.toMap(linkedMapOf())
+      return entries to map
     }
 
     val entries = mutableListOf<ApkDexEntry>()
     val map = linkedMapOf<String, ByteArray>()
+    var baseApkBytes: ByteArray? = null
     ZipInputStream(buffered).use { zis ->
       while (true) {
         val entry = zis.nextEntry ?: break
-        if (!entry.isDirectory && entry.name.endsWith(".dex", ignoreCase = true)) {
-          val dexBytes = zis.readBytes()
-          entries += ApkDexEntry(entry.name, dexBytes.size)
-          map[entry.name] = dexBytes
+        if (!entry.isDirectory) {
+          if (entry.name.endsWith(".dex", ignoreCase = true)) {
+            val dexBytes = zis.readBytes()
+            val split = splitDex041ContainerIfNeeded(entry.name, dexBytes)
+            val isSplit = split.size > 1
+            split.forEach { (logicalName, logicalBytes) ->
+              entries += ApkDexEntry(logicalName, logicalBytes.size, isSplitFromDex041 = isSplit)
+              map[logicalName] = logicalBytes
+            }
+          } else if (entry.name.equals("base.apk", ignoreCase = true) || (baseApkBytes == null && entry.name.endsWith(".apk", ignoreCase = true))) {
+            baseApkBytes = zis.readBytes()
+          }
         }
         zis.closeEntry()
       }
+    }
+    if (entries.isEmpty() && baseApkBytes != null) {
+      return extractDexContainers(baseApkBytes!!, fileName)
     }
     if (entries.isEmpty()) {
       throw IllegalArgumentException("No DEX binary or classes*.dex entries found inside \"$fileName\".")
@@ -79,9 +99,63 @@ object DexParser {
   fun extractDexContainers(bytes: ByteArray, fileName: String): Pair<List<ApkDexEntry>, Map<String, ByteArray>> {
     if (bytes.size >= 4 && bytes[0] == 'd'.code.toByte() && bytes[1] == 'e'.code.toByte() && bytes[2] == 'x'.code.toByte() && bytes[3] == '\n'.code.toByte()) {
       val name = if (fileName.endsWith(".dex", ignoreCase = true)) fileName else "classes.dex"
-      return listOf(ApkDexEntry(name, bytes.size)) to mapOf(name to bytes)
+      val split = splitDex041ContainerIfNeeded(name, bytes)
+      val isSplit = split.size > 1
+      val entries = split.map { (n, b) -> ApkDexEntry(n, b.size, isSplitFromDex041 = isSplit) }
+      val map = split.toMap(linkedMapOf())
+      return entries to map
     }
     return extractDexContainersFromStream(ByteArrayInputStream(bytes), fileName)
+  }
+
+  /**
+   * Splits a DEX `041` multi-section container into individual logical DEX slices
+   * (container-relative offsets preserved, section header copied to byte `0..0x70`).
+   * Uses native `apkparser::iter_logical_dexes` when available, with a pure-Kotlin fallback.
+   */
+  fun splitDex041ContainerIfNeeded(entryName: String, rawBytes: ByteArray): List<Pair<String, ByteArray>> {
+    if (!isDex041MagicAt(rawBytes, 0)) {
+      return listOf(entryName to rawBytes)
+    }
+    if (DexNativeEngine.isAvailable) {
+      DexNativeEngine.splitDex041ContainerFast(entryName, rawBytes)?.let { split ->
+        if (split.isNotEmpty()) return split
+      }
+    }
+    val offsets = findLogicalDex041Offsets(rawBytes)
+    if (offsets.size <= 1) {
+      return listOf(entryName to rawBytes)
+    }
+    return offsets.mapIndexed { idx, hdrOff ->
+      val copy = rawBytes.copyOf()
+      System.arraycopy(rawBytes, hdrOff, copy, 0, 0x70)
+      "$entryName!classes${idx + 1}.dex" to copy
+    }
+  }
+
+  private fun isDex041MagicAt(bytes: ByteArray, offset: Int): Boolean {
+    if (offset < 0 || offset + 0x70 > bytes.size) return false
+    return bytes[offset] == 'd'.code.toByte() &&
+      bytes[offset + 1] == 'e'.code.toByte() &&
+      bytes[offset + 2] == 'x'.code.toByte() &&
+      bytes[offset + 3] == '\n'.code.toByte() &&
+      bytes[offset + 4] == '0'.code.toByte() &&
+      bytes[offset + 5] == '4'.code.toByte() &&
+      bytes[offset + 6] == '1'.code.toByte() &&
+      bytes[offset + 7] == 0.toByte()
+  }
+
+  private fun findLogicalDex041Offsets(bytes: ByteArray): List<Int> {
+    if (!isDex041MagicAt(bytes, 0)) return emptyList()
+    val offsets = mutableListOf<Int>()
+    var off = 0
+    while (isDex041MagicAt(bytes, off)) {
+      val fileSize = ByteBuffer.wrap(bytes, off + 0x20, 4).order(ByteOrder.LITTLE_ENDIAN).int
+      if (fileSize < 0x70 || off.toLong() + fileSize.toLong() > bytes.size.toLong()) break
+      offsets += off
+      off += fileSize
+    }
+    return offsets
   }
 
   fun parseDex(

@@ -74,4 +74,10 @@ data class ApkStagingPreview(
   val dexByteMap: Map<String, ByteArray>,
   val isSingleDex: Boolean,
   val iconBitmap: Bitmap?,
+  val applicationName: String? = null,
+  val permissionsCount: Int = 0,
+  val signatureSchemes: List<String> = emptyList(),
+  val isApkmBundle: Boolean = false,
+  val hasDex041Container: Boolean = false,
+  val arscBytes: ByteArray? = null,
 )

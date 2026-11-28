@@ -41,6 +41,14 @@ class Dex2cNativeRepository {
     DexNativeEngine.disassembleSmaliFast(dexBytes, classDefIdx)
   }
 
+  suspend fun disassembleMethod(
+    dexBytes: ByteArray,
+    classDefIdx: Int,
+    methodIdx: Int,
+  ): DexNativeEngine.NativeMethodDisassembly? = withContext(Dispatchers.IO) {
+    DexNativeEngine.disassembleMethodFast(dexBytes, classDefIdx, methodIdx)
+  }
+
   suspend fun transpileMethod(
     dexBytes: ByteArray,
     classDefIdx: Int,
@@ -54,5 +62,77 @@ class Dex2cNativeRepository {
     methodIndices: Set<Int>,
   ): ByteArray? = withContext(Dispatchers.IO) {
     DexNativeEngine.patchDexMethodsFast(dexBytes, methodIndices)
+  }
+
+  suspend fun inspectManifestAndResources(
+    manifestBytes: ByteArray,
+    arscBytes: ByteArray? = null,
+  ): DexNativeEngine.NativeManifestSummary? = withContext(Dispatchers.IO) {
+    DexNativeEngine.inspectManifestAndResourcesFast(manifestBytes, arscBytes)
+  }
+
+  suspend fun inspectApkArchive(
+    apkBytes: ByteArray,
+  ): DexNativeEngine.NativeApkArchiveSummary? = withContext(Dispatchers.IO) {
+    DexNativeEngine.inspectApkArchiveFast(apkBytes)
+  }
+
+  suspend fun splitDex041Container(
+    entryName: String,
+    dexBytes: ByteArray,
+  ): List<Pair<String, ByteArray>>? = withContext(Dispatchers.IO) {
+    DexNativeEngine.splitDex041ContainerFast(entryName, dexBytes)
+  }
+
+  suspend fun verifyDexMethod(
+    dexBytes: ByteArray,
+    classDefIdx: Int,
+    methodIdx: Int,
+  ): DexNativeEngine.NativeMethodVerificationReport? = withContext(Dispatchers.IO) {
+    DexNativeEngine.verifyDexMethodFast(dexBytes, classDefIdx, methodIdx)
+  }
+
+  suspend fun verifyDexClass(
+    dexBytes: ByteArray,
+    classDefIdx: Int,
+  ): List<DexNativeEngine.NativeMethodVerificationReport>? = withContext(Dispatchers.IO) {
+    DexNativeEngine.verifyDexClassFast(dexBytes, classDefIdx)
+  }
+
+  suspend fun alignAndSignApk(
+    apkBytes: ByteArray,
+    privateKeyDer: ByteArray? = null,
+    certDer: ByteArray? = null,
+    enableV1: Boolean = false,
+    enableV2: Boolean = true,
+    enableV3: Boolean = true,
+    pageAlignment: Int = 16384,
+  ): ByteArray? = withContext(Dispatchers.IO) {
+    DexNativeEngine.alignAndSignApkFast(
+      apkBytes = apkBytes,
+      privateKeyDer = privateKeyDer,
+      certDer = certDer,
+      enableV1 = enableV1,
+      enableV2 = enableV2,
+      enableV3 = enableV3,
+      pageAlignment = pageAlignment,
+    )
+  }
+
+  suspend fun decompileMethodJava(
+    dexBytes: ByteArray,
+    classDefIdx: Int,
+    methodIdx: Int,
+    arscBytes: ByteArray? = null,
+  ): String? = withContext(Dispatchers.IO) {
+    DexNativeEngine.decompileMethodJavaFast(dexBytes, classDefIdx, methodIdx, arscBytes)
+  }
+
+  suspend fun decompileClassJava(
+    dexBytes: ByteArray,
+    classDefIdx: Int,
+    arscBytes: ByteArray? = null,
+  ): String? = withContext(Dispatchers.IO) {
+    DexNativeEngine.decompileClassJavaFast(dexBytes, classDefIdx, arscBytes)
   }
 }

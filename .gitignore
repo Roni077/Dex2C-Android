@@ -93,3 +93,7 @@ Desktop.ini
 
 .git_legacy_backup/
 .agents/
+
+# Vendored Androguard build/test fixtures (override *.apk / *.key ignores above)
+!rust-engine/vendor/apk-parser/src/sign/embedded_debug.key
+!rust-engine/vendor/axml-parser/tests/AXML/*.apk

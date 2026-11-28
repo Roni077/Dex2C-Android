@@ -6,5 +6,9 @@ description = "High-performance DEX binary parser, Dalvik disassembler, CFG buil
 
 [dependencies]
 dex2c-core = { path = "../dex2c-core" }
+dex-parser = { workspace = true }
+dex-bytecode = { workspace = true }
 regex = { version = "1.10", default-features = false, features = ["std", "perf"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 log = "0.4"

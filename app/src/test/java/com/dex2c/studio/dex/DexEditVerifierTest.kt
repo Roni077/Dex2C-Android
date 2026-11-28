@@ -1,5 +1,11 @@
 package com.dex2c.studio.dex
 
+import com.dex2c.studio.apk.ApkSigningKeystore
+import java.io.ByteArrayInputStream
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
+import java.util.Base64
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -103,5 +109,63 @@ class DexEditVerifierTest {
 
     val resultNegative = DexEditVerifier.verifyReplacementCount(-1, "oldString")
     assertNotNull(resultNegative)
+  }
+
+  @Test
+  fun testVerifyCompiledClassBytecodeValidAndTruncated() {
+    val c1 = createDummyClass("Lcom/example/TargetClass;")
+    val validHeader = createDummyDex(listOf(c1)).let { base ->
+      val raw = ByteArray(0x80)
+      "dex\n039\u0000".toByteArray(Charsets.US_ASCII).copyInto(raw, 0)
+      base.copy(rawBytes = raw)
+    }
+    assertNull(
+      DexEditVerifier.verifyCompiledClassBytecode(
+        validHeader.rawBytes,
+        validHeader,
+        "Lcom/example/TargetClass;",
+      )
+    )
+    val invalidHeader = validHeader.copy(rawBytes = ByteArray(16))
+    assertNotNull(
+      DexEditVerifier.verifyCompiledClassBytecode(
+        invalidHeader.rawBytes,
+        invalidHeader,
+        "Lcom/example/TargetClass;",
+      )
+    )
+    assertNotNull(
+      DexEditVerifier.verifyCompiledClassBytecode(
+        validHeader.rawBytes,
+        validHeader,
+        "Lcom/example/MissingClass;",
+      )
+    )
+  }
+
+  @Test
+  fun testEphemeralDebugKeystoreAndPemLoaderProduceValidX509Cert() {
+    val mat = ApkSigningKeystore.generateEphemeralRsaDebugKeystore()
+    assertTrue(mat.privateKeyPkcs8Der.isNotEmpty())
+    assertTrue(mat.certificateX509Der.isNotEmpty())
+
+    val cf = CertificateFactory.getInstance("X.509")
+    val x509 = cf.generateCertificate(ByteArrayInputStream(mat.certificateX509Der)) as X509Certificate
+    x509.verify(x509.publicKey)
+    assertTrue(x509.subjectX500Principal.name.contains("Dex2C Studio Debug"))
+
+    val pkPem =
+      ("-----BEGIN PRIVATE KEY-----\n" +
+        Base64.getEncoder().encodeToString(mat.privateKeyPkcs8Der) +
+        "\n-----END PRIVATE KEY-----\n").toByteArray(Charsets.US_ASCII)
+    val certPem =
+      ("-----BEGIN CERTIFICATE-----\n" +
+        Base64.getEncoder().encodeToString(mat.certificateX509Der) +
+        "\n-----END CERTIFICATE-----\n").toByteArray(Charsets.US_ASCII)
+
+    val loaded = ApkSigningKeystore.loadCustomKeystore(pkPem, certPem, "Custom Test")
+    assertEquals("Custom Test", loaded.label)
+    assertTrue(loaded.privateKeyPkcs8Der.contentEquals(mat.privateKeyPkcs8Der))
+    assertTrue(loaded.certificateX509Der.contentEquals(mat.certificateX509Der))
   }
 }

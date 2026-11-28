@@ -11,7 +11,7 @@ pub struct NativeMethodReg {
 }
 
 pub fn generate_jni_onload(
-    module_name: &str,
+    _module_name: &str,
     style: JniBindingStyle,
     methods: &[NativeMethodReg],
 ) -> String {

@@ -1,5 +1,7 @@
 package com.dex2c.studio.dex
 
+import com.dex2c.studio.nativeengine.DexNativeEngine
+
 /**
  * Pure post-condition verification gates to ensure DEX modifications meet invariants
  * before in-memory state is replaced.
@@ -36,5 +38,36 @@ object DexEditVerifier {
     return if (count <= 0) {
       "No string literals matching '$query' found in active DEX."
     } else null
+  }
+
+  /**
+   * Pre-flight structural and Dalvik `RegType` verification of a recompiled class
+   * using native `dex2c-dex::verifier` (`nativeVerifyDexClass`) when available.
+   */
+  fun verifyCompiledClassBytecode(
+    dexBytes: ByteArray,
+    parsed: DexParsedFile,
+    targetDescriptor: String,
+  ): String? {
+    if (dexBytes.size < 0x70 || !String(dexBytes, 0, 4, Charsets.US_ASCII).startsWith("dex\n")) {
+      return "Recompiled output does not start with a valid DEX header."
+    }
+    val classDefIdx = parsed.classes.indexOfFirst { it.descriptor == targetDescriptor }
+    if (classDefIdx < 0) {
+      return "Target class $targetDescriptor missing from assembled DEX class_defs."
+    }
+    if (!DexNativeEngine.isAvailable) {
+      return null
+    }
+    val reports = DexNativeEngine.verifyDexClassFast(dexBytes, classDefIdx) ?: return null
+    val failing = reports.firstOrNull { !it.passed } ?: return null
+    val firstIssue = failing.issues.firstOrNull { it.severity == "error" } ?: failing.issues.firstOrNull()
+    val detail =
+      if (firstIssue != null) {
+        "${firstIssue.code} at pc=0x%04X (${firstIssue.mnemonic}): ${firstIssue.message}".format(firstIssue.pcWord)
+      } else {
+        "Verification failed with unspecified bytecode error"
+      }
+    return "${failing.methodName}: $detail"
   }
 }

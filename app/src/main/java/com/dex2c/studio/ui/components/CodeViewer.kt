@@ -37,11 +37,17 @@ import com.dex2c.studio.ui.theme.LocalEditorSettings
 import com.dex2c.studio.ui.theme.LocalSyntaxPalette
 import com.dex2c.studio.ui.theme.SyntaxPalette
 
+enum class CodeLanguage {
+  C_CPP,
+  JAVA,
+}
+
 @Composable
 fun SyntaxCodeViewer(
   code: String,
   modifier: Modifier = Modifier,
   maxLinesLimit: Int? = null,
+  language: CodeLanguage = CodeLanguage.C_CPP,
 ) {
   val palette = LocalSyntaxPalette.current
   val editorSettings = LocalEditorSettings.current
@@ -70,7 +76,13 @@ fun SyntaxCodeViewer(
           key = { index, _ -> index },
           contentType = { _, _ -> 0 },
         ) { index, line ->
-          val highlighted = remember(line, palette) { highlightCLine(line, palette) }
+          val highlighted =
+            remember(line, palette, language) {
+              when (language) {
+                CodeLanguage.C_CPP -> highlightCLine(line, palette)
+                CodeLanguage.JAVA -> highlightJavaLine(line, palette)
+              }
+            }
           Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
             verticalAlignment = Alignment.Top,
@@ -230,6 +242,23 @@ private val cTypes =
     "uint8_t", "uint32_t", "uint64_t", "size_t", "char", "NULL", "JNI_OK", "JNI_ERR", "JNI_VERSION_1_6",
   )
 
+private val javaKeywords =
+  setOf(
+    "public", "private", "protected", "static", "final", "abstract", "synchronized", "native",
+    "strictfp", "transient", "volatile", "return", "if", "else", "while", "for", "do",
+    "switch", "case", "default", "break", "continue", "try", "catch", "finally", "throw",
+    "throws", "new", "instanceof", "class", "interface", "enum", "extends", "implements",
+    "import", "package", "this", "super", "true", "false", "null", "void",
+  )
+
+private val javaTypes =
+  setOf(
+    "boolean", "byte", "short", "char", "int", "long", "float", "double",
+    "String", "Object", "Class", "Integer", "Long", "Boolean", "Float", "Double",
+    "Byte", "Short", "Character", "System", "Math", "StringBuilder", "Throwable",
+    "Exception", "RuntimeException", "List", "Map", "Set", "R", "android",
+  )
+
 private val cStringRegex = Regex("\"([^\"\\\\]|\\\\.)*\"")
 private val cWordRegex = Regex("\\b[A-Za-z_][A-Za-z0-9_]*\\b")
 private val cNumRegex = Regex("\\b(0x[0-9A-Fa-f]+u?|\\d+LL?)\\b")
@@ -237,17 +266,45 @@ private val dalvikRegRegex = Regex("\\bv\\d+\\b")
 private val dalvikLabelRegex = Regex("\\bL_[0-9a-fA-F]+\\b")
 private val dalvikNumberRegex = Regex("#-?(0x[0-9a-fA-F]+|\\d+)")
 
-private fun highlightCLine(line: String, palette: SyntaxPalette): AnnotatedString {
+private fun highlightCLine(line: String, palette: SyntaxPalette): AnnotatedString =
+  highlightLineWithTables(
+    line = line,
+    palette = palette,
+    keywords = cKeywords,
+    types = cTypes,
+    directivePrefix = "#",
+  )
+
+private fun highlightJavaLine(line: String, palette: SyntaxPalette): AnnotatedString =
+  highlightLineWithTables(
+    line = line,
+    palette = palette,
+    keywords = javaKeywords,
+    types = javaTypes,
+    directivePrefix = "@",
+  )
+
+private fun highlightLineWithTables(
+  line: String,
+  palette: SyntaxPalette,
+  keywords: Set<String>,
+  types: Set<String>,
+  directivePrefix: String,
+): AnnotatedString {
   return buildAnnotatedString {
     val trimmed = line.trimStart()
     if (trimmed.isEmpty()) {
       append(line)
       return@buildAnnotatedString
     }
-    if (trimmed.startsWith("//") || trimmed.startsWith("#") || trimmed.startsWith("/*")) {
-      val color = if (trimmed.startsWith("#")) palette.label else palette.comment
+    if (trimmed.startsWith("//") || trimmed.startsWith("/*")) {
       append(line)
-      addStyle(SpanStyle(color = color), 0, line.length)
+      addStyle(SpanStyle(color = palette.comment), 0, line.length)
+      return@buildAnnotatedString
+    }
+    if (trimmed.startsWith(directivePrefix)) {
+      append(line)
+      addStyle(SpanStyle(color = palette.label), 0, line.length)
       return@buildAnnotatedString
     }
 
@@ -277,8 +334,8 @@ private fun highlightCLine(line: String, palette: SyntaxPalette): AnnotatedStrin
     val codeSlice = if (limit == line.length) line else line.substring(0, limit)
     cWordRegex.findAll(codeSlice).forEach { m ->
       when (m.value) {
-        in cKeywords -> addStyle(SpanStyle(color = palette.keyword), m.range.first, m.range.last + 1)
-        in cTypes -> addStyle(SpanStyle(color = palette.typeName), m.range.first, m.range.last + 1)
+        in keywords -> addStyle(SpanStyle(color = palette.keyword), m.range.first, m.range.last + 1)
+        in types -> addStyle(SpanStyle(color = palette.typeName), m.range.first, m.range.last + 1)
       }
     }
 

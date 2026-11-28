@@ -6,7 +6,19 @@ members = [
     "crates/dex2c-transpiler",
     "crates/dex2c-toolchain",
     "crates/dex2c-editor",
+    "vendor/dex-bytecode",
+    "vendor/dex-parser",
+    "vendor/axml-parser",
+    "vendor/apk-parser",
+    "vendor/dex-decompiler",
 ]
+
+[workspace.dependencies]
+dex-bytecode = { path = "vendor/dex-bytecode", default-features = false }
+dex-parser = { path = "vendor/dex-parser", default-features = false }
+axml-parser = { path = "vendor/axml-parser", default-features = false }
+apkparser = { path = "vendor/apk-parser", default-features = false, features = ["sign-pure"] }
+dex-decompiler = { path = "vendor/dex-decompiler", default-features = false }
 
 [package]
 name = "rust_dex2c"
@@ -25,9 +37,18 @@ dex2c-smali = { path = "crates/dex2c-smali" }
 dex2c-transpiler = { path = "crates/dex2c-transpiler" }
 dex2c-toolchain = { path = "crates/dex2c-toolchain" }
 dex2c-editor = { path = "crates/dex2c-editor" }
+dex-parser = { workspace = true }
+dex-bytecode = { workspace = true }
+axml-parser = { workspace = true }
+apkparser = { workspace = true }
+dex-decompiler = { workspace = true }
 jni = { version = "0.21", default-features = false }
 regex = { version = "1.10", default-features = false, features = ["std", "perf"] }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+[dev-dependencies]
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
 
 [profile.release]
 opt-level = 3

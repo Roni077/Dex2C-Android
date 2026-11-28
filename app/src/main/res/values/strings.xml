@@ -68,6 +68,7 @@
 
     <string name="tab_dalvik">Dalvik IR</string>
     <string name="tab_smali">Smali</string>
+    <string name="tab_java">Java</string>
     <string name="tab_blocks">Blocks</string>
     <string name="tab_transpiled_c">JNI C/C++</string>
     <string name="tab_dex_meta">DEX Meta</string>

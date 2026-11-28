@@ -1,0 +1,20 @@
+[package]
+name = "dex-parser"
+version = "0.1.0"
+edition = "2021"
+description = "DEX file format parser for Android (pure Rust)"
+license = "Apache-2.0"
+keywords = ["android", "dex", "parser", "androguard"]
+authors = ["anthony <ping@42.bzh>"]
+
+[dependencies]
+dex-bytecode = { path = "../dex-bytecode" }
+thiserror = "1.0"
+clap = { version = "4", features = ["derive"], optional = true }
+sha1 = "0.10"
+memchr = "2"
+
+[features]
+default = []
+disasm = []
+cli = ["dep:clap"]

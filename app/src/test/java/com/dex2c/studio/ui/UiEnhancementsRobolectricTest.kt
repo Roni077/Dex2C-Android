@@ -4,13 +4,22 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.dex2c.studio.cloud.GitHubApiClient
 import com.dex2c.studio.cloud.GitHubWorkflowStep
+import com.dex2c.studio.dex.DexClassInfo
+import com.dex2c.studio.dex.DexCodeMeta
+import com.dex2c.studio.dex.DexEncodedMethod
+import com.dex2c.studio.dex.DexMethodRef
+import com.dex2c.studio.dex.DexMethodStructuralMeta
+import com.dex2c.studio.dex.DexProto
 import com.dex2c.studio.transpiler.TranspilerConfig
+import com.dex2c.studio.ui.MethodInspectionState
 import com.dex2c.studio.ui.components.BatchActionBar
 import com.dex2c.studio.ui.components.FilterRustEditor
 import com.dex2c.studio.ui.components.InteractiveFilterRuleBuilderPanel
 import com.dex2c.studio.ui.components.formatDisplaySteps
+import com.dex2c.studio.ui.screens.MethodDetailScreen
 import com.dex2c.studio.ui.theme.Dex2cTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -129,5 +138,140 @@ class UiEnhancementsRobolectricTest {
 
     composeTestRule.onNodeWithText("Target: com.sample.dynamictarget.*").assertIsDisplayed()
     composeTestRule.onNodeWithTag("preset_target_package").assertIsDisplayed()
+  }
+
+  private fun buildJavaMethodInspection(
+    classDescriptor: String,
+    simpleName: String,
+    fullName: String,
+    methodName: String,
+    proto: DexProto,
+    paramNames: List<String>,
+    decompiledJava: String,
+  ): MethodInspectionState {
+    val method =
+      DexEncodedMethod(
+        id = "classes.dex::$classDescriptor#0",
+        methodIndex = 0,
+        methodRef = DexMethodRef(definingClass = classDescriptor, proto = proto, name = methodName),
+        accessFlags = 0x0001,
+        isDirect = false,
+        codeMeta = DexCodeMeta(2, 1 + proto.parameterTypes.size, 0, 0, 4, 0),
+        sourceEntryName = "classes.dex",
+      )
+    val dexClass =
+      DexClassInfo(
+        classIndex = 0,
+        descriptor = classDescriptor,
+        fullName = fullName,
+        simpleName = simpleName,
+        packageName = "com.example",
+        superclass = "Ljava/lang/Object;",
+        interfaces = emptyList(),
+        sourceFile = "$simpleName.java",
+        accessFlags = 0x0001,
+        staticFields = emptyList(),
+        instanceFields = emptyList(),
+        directMethods = emptyList(),
+        virtualMethods = listOf(method),
+      )
+    return MethodInspectionState(
+      method = method,
+      dexClass = dexClass,
+      instructions = emptyList(),
+      tryBlocks = emptyList(),
+      transpiledC = "void Java_stub(JNIEnv* env, jobject thiz) {}",
+      structuralMeta =
+        DexMethodStructuralMeta(
+          methodIndex = 0,
+          codeItemOffset = 0,
+          debugInfoOffset = 0,
+          classAnnotationsOffset = 0,
+          staticValuesOffset = 0,
+          parameterNames = paramNames,
+          debugLines = emptyList(),
+          classAnnotations = emptyList(),
+          methodAnnotations = emptyList(),
+          staticValuesPreview = emptyList(),
+          sourceFile = "$simpleName.java",
+        ),
+      decompiledJava = decompiledJava,
+    )
+  }
+
+  @Test
+  fun testMethodDetailScreenJavaTabDisplaysAndCopiesDecompiledJava() {
+    val sampleJava =
+      """
+      public boolean checkAccess(int code) {
+          if (code == 42) {
+              return true;
+          }
+          return false;
+      }
+      """.trimIndent()
+    val inspection =
+      buildJavaMethodInspection(
+        classDescriptor = "Lcom/example/Guard;",
+        simpleName = "Guard",
+        fullName = "com.example.Guard",
+        methodName = "checkAccess",
+        proto = DexProto(shorty = "ZI", returnType = "Z", parameterTypes = listOf("I")),
+        paramNames = listOf("code"),
+        decompiledJava = sampleJava,
+      )
+
+    var copied = ""
+    composeTestRule.setContent {
+      Dex2cTheme {
+        MethodDetailScreen(
+          inspection = inspection,
+          isSelected = false,
+          onToggleSelect = {},
+          onCopyCCode = { copied = it },
+          onBack = {},
+        )
+      }
+    }
+
+    composeTestRule.onNodeWithTag("tab_method_java").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("java_code_viewer").assertIsDisplayed()
+    composeTestRule.onNodeWithText("public boolean checkAccess(int code) {", substring = true).assertIsDisplayed()
+    composeTestRule.onNodeWithTag("method_copy_c_btn").performClick()
+    assertEquals(sampleJava, copied)
+  }
+
+  @Test
+  @Config(sdk = [36], qualifiers = "w840dp-h900dp")
+  fun testMethodDetailScreenWideLayoutDisplaysJavaSegmentedTab() {
+    val sampleJava = "public void ping() {\n    System.out.println(\"pong\");\n}"
+    val inspection =
+      buildJavaMethodInspection(
+        classDescriptor = "Lcom/example/WideHost;",
+        simpleName = "WideHost",
+        fullName = "com.example.WideHost",
+        methodName = "ping",
+        proto = DexProto(shorty = "V", returnType = "V", parameterTypes = emptyList()),
+        paramNames = emptyList(),
+        decompiledJava = sampleJava,
+      )
+
+    composeTestRule.setContent {
+      Dex2cTheme {
+        MethodDetailScreen(
+          inspection = inspection,
+          isSelected = false,
+          onToggleSelect = {},
+          onCopyCCode = {},
+          onBack = {},
+        )
+      }
+    }
+
+    composeTestRule.onNodeWithTag("tab_method_java_wide").assertIsDisplayed().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("java_code_viewer").assertIsDisplayed()
+    composeTestRule.onNodeWithText("public void ping() {", substring = true).assertIsDisplayed()
   }
 }

@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dex2c.studio.BuildConfig
 import com.dex2c.studio.apk.ApkMetadataInspector
+import com.dex2c.studio.apk.ApkSigningKeystore
 import com.dex2c.studio.apk.ApkStagingPreview
 import com.dex2c.studio.apk.BinarySourceType
 import com.dex2c.studio.apk.InstalledAppItem
@@ -64,6 +65,7 @@ import com.dex2c.studio.dex.MethodControlFlowGraph
 import com.dex2c.studio.dex.SmaliClassDisassembler
 import com.dex2c.studio.dex.SmaliDexCompiler
 import com.dex2c.studio.dex.SmaliMethodSpan
+import com.dex2c.studio.nativeengine.DexNativeEngine
 import com.dex2c.studio.transpiler.DccConfigCodec
 import com.dex2c.studio.transpiler.Dex2cTranspiler
 import com.dex2c.studio.transpiler.FilterMatchSummary
@@ -143,6 +145,7 @@ data class MethodInspectionState(
   val structuralMeta: DexMethodStructuralMeta,
   val cfg: MethodControlFlowGraph = ControlFlowGraphBuilder.build(instructions, tryBlocks),
   val methodSmali: String = "",
+  val decompiledJava: String? = null,
 )
 
 sealed interface SmaliClassUiState {
@@ -400,6 +403,7 @@ class Dex2cViewModel @JvmOverloads constructor(
   val canUndoDexEdit: StateFlow<Boolean> = _canUndoDexEdit.asStateFlow()
 
   private var dexByteCache: Map<String, ByteArray> = emptyMap()
+  private var activeArscBytes: ByteArray? = null
   private var activeSourceApkUri: Uri? = null
   private var activeSourceApkFilePath: String? = null
   private var currentSourceLabel: String = ""
@@ -806,7 +810,15 @@ class Dex2cViewModel @JvmOverloads constructor(
         SmaliClassDisassembler.trimCache(maxEntries = 1)
         val dexMap = linkedMapOf<String, DexParsedFile>()
         parsedList.forEach { dexMap[it.entryName] = it }
-        applyParsedDexes(label, preview.dexEntries, preview.dexByteMap, dexMap, preview.packageName, preview.iconBitmap)
+        applyParsedDexes(
+          label = label,
+          entries = preview.dexEntries,
+          byteMap = preview.dexByteMap,
+          dexMap = dexMap,
+          apkPackageName = preview.packageName,
+          iconBitmap = preview.iconBitmap,
+          arscBytes = preview.arscBytes,
+        )
       } catch (t: Throwable) {
         _loadState.value = DexLoadState.Error(t.message ?: "Failed to parse selected DEX files.")
       }
@@ -929,9 +941,11 @@ class Dex2cViewModel @JvmOverloads constructor(
     dexMap: Map<String, DexParsedFile>,
     apkPackageName: String? = null,
     iconBitmap: Bitmap? = null,
+    arscBytes: ByteArray? = null,
   ) {
     currentSourceLabel = label
     dexByteCache = byteMap
+    activeArscBytes = arscBytes
     dexEditSession.clear()
     _dexEditUndoPrompt.value = null
     _canUndoDexEdit.value = false
@@ -1668,31 +1682,44 @@ class Dex2cViewModel @JvmOverloads constructor(
 
     viewModelScope.launch {
       try {
-        withContext(Dispatchers.IO) {
-          context.contentResolver.openOutputStream(uri)?.use { out ->
-            val srcStream =
-              when {
-                sourceUri != null -> context.contentResolver.openInputStream(sourceUri)
-                !sourceFilePath.isNullOrBlank() && File(sourceFilePath).exists() ->
-                  FileInputStream(File(sourceFilePath))
-                else -> null
-              }
-            if (srcStream != null) {
-              srcStream.use { input ->
-                SmaliDexCompiler.repackApkWithPatchedDexes(
-                  originalApkStream = input,
+        val signResult =
+          withContext(Dispatchers.IO) {
+            val keystore = ApkSigningKeystore.getOrCreateDebugKeystore(context)
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+              val srcStream =
+                when {
+                  sourceUri != null -> context.contentResolver.openInputStream(sourceUri)
+                  !sourceFilePath.isNullOrBlank() && File(sourceFilePath).exists() ->
+                    FileInputStream(File(sourceFilePath))
+                  else -> null
+                }
+              if (srcStream != null) {
+                srcStream.use { input ->
+                  SmaliDexCompiler.repackAndAlignSignApk(
+                    originalApkStream = input,
+                    patchedDexByEntryName = patchedMap,
+                    outputStream = out,
+                    privateKeyDer = keystore?.privateKeyPkcs8Der,
+                    certificateDer = keystore?.certificateX509Der,
+                  )
+                }
+              } else {
+                SmaliDexCompiler.repackAndAlignSignApk(
+                  originalApkStream = null,
                   patchedDexByEntryName = patchedMap,
                   outputStream = out,
+                  privateKeyDer = keystore?.privateKeyPkcs8Der,
+                  certificateDer = keystore?.certificateX509Der,
                 )
               }
-            } else {
-              val zipBytes = SmaliDexCompiler.buildDexContainerZip(patchedMap)
-              out.write(zipBytes)
-            }
-          } ?: throw IllegalStateException("Unable to open destination stream.")
-        }
+            } ?: throw IllegalStateException("Unable to open destination stream.")
+          }
         _statusBanner.value =
-          "Exported patched archive (${patchedMap.size} DEX file(s)). Note: Re-sign APK with apksigner before installing."
+          if (signResult.isSignedV2V3) {
+            "Exported & signed patched APK (v2+v3, 16KB aligned, ${patchedMap.size} DEX file(s))."
+          } else {
+            "Exported patched archive (${patchedMap.size} DEX file(s)). Note: Re-sign APK with apksigner before installing."
+          }
       } catch (t: Throwable) {
         _statusBanner.value = "Patched APK export failed: ${t.message}"
       }
@@ -1754,6 +1781,7 @@ class Dex2cViewModel @JvmOverloads constructor(
     SmaliClassDisassembler.clearCache()
     InstalledAppRepository.clearIconCache()
     dexByteCache = emptyMap()
+    activeArscBytes = null
     runCatching {
       val bundleCache = java.io.File(getApplication<Application>().cacheDir, "dex2c_bundle")
       if (bundleCache.exists()) bundleCache.deleteRecursively()
@@ -1786,12 +1814,34 @@ class Dex2cViewModel @JvmOverloads constructor(
     viewModelScope.launch {
       val state =
         withContext(Dispatchers.Default) {
-          val insns = DalvikDisassembler.disassemble(targetDex, method)
-          val tries = DalvikDisassembler.parseTryBlocks(targetDex, method)
-          val methodCfg = ControlFlowGraphBuilder.build(insns, tries)
+          val classDefIdx =
+            targetDex.classes
+              .indexOfFirst { it === dexClass || it.uniqueKey == dexClass.uniqueKey }
+              .takeIf { it >= 0 }
+              ?: dexClass.classIndex
+          val nativeDisasm =
+            if (DexNativeEngine.isAvailable && targetDex.rawBytes.isNotEmpty() && classDefIdx >= 0) {
+              DexNativeEngine.disassembleMethodFast(targetDex.rawBytes, classDefIdx, method.methodIndex)
+            } else {
+              null
+            }
+          val insns = nativeDisasm?.instructions ?: DalvikDisassembler.disassemble(targetDex, method)
+          val tries = nativeDisasm?.tryBlocks ?: DalvikDisassembler.parseTryBlocks(targetDex, method)
+          val methodCfg = nativeDisasm?.cfg ?: ControlFlowGraphBuilder.build(insns, tries)
           val cCode = Dex2cTranspiler.transpileMethodToC(targetDex, method, cfg)
           val meta = DexHelper.inspectMethodMetadata(targetDex, dexClass, method)
           val methodSmali = SmaliClassDisassembler.disassembleMethod(targetDex, dexClass, method)
+          val decompiledJava =
+            if (DexNativeEngine.isAvailable && targetDex.rawBytes.isNotEmpty() && classDefIdx >= 0) {
+              DexNativeEngine.decompileMethodJavaFast(
+                dexBytes = targetDex.rawBytes,
+                classDefIdx = classDefIdx,
+                methodIdx = method.methodIndex,
+                arscBytes = activeArscBytes,
+              )
+            } else {
+              null
+            }
           MethodInspectionState(
             method = method,
             dexClass = dexClass,
@@ -1801,6 +1851,7 @@ class Dex2cViewModel @JvmOverloads constructor(
             structuralMeta = meta,
             cfg = methodCfg,
             methodSmali = methodSmali,
+            decompiledJava = decompiledJava,
           )
         }
       _inspection.value = state

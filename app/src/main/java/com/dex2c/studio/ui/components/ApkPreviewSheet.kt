@@ -228,6 +228,16 @@ private fun ColumnScope.PreviewReadyContent(
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
               }
+              if (!preview.applicationName.isNullOrBlank()) {
+                Text(
+                  text = "app: ${preview.applicationName}",
+                  style = MaterialTheme.typography.labelSmall,
+                  fontFamily = JetBrainsMonoFontFamily,
+                  color = MaterialTheme.colorScheme.primary,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                )
+              }
             }
           }
 
@@ -237,6 +247,8 @@ private fun ColumnScope.PreviewReadyContent(
           ) {
             TagPill(preview.sourceType.label)
             TagPill(formatApkSize(preview.totalByteSize))
+            if (preview.isApkmBundle) TagPill("APKM Bundle")
+            if (preview.hasDex041Container) TagPill("DEX 041")
             if (!preview.versionName.isNullOrBlank()) {
               val verText =
                 if (preview.versionCode != null) "v${preview.versionName} (${preview.versionCode})"
@@ -245,6 +257,10 @@ private fun ColumnScope.PreviewReadyContent(
             }
             if (preview.minSdk != null) TagPill("minSdk ${preview.minSdk}")
             if (preview.targetSdk != null && preview.targetSdk > 0) TagPill("targetSdk ${preview.targetSdk}")
+            if (preview.permissionsCount > 0) TagPill("${preview.permissionsCount} perms")
+            if (preview.signatureSchemes.isNotEmpty()) {
+              TagPill("Sig: ${preview.signatureSchemes.joinToString("/")}")
+            }
           }
 
           if (!preview.isSingleDex) {
@@ -336,7 +352,9 @@ private fun ColumnScope.PreviewReadyContent(
               fontWeight = FontWeight.SemiBold,
             )
             Text(
-              text = formatApkSize(entry.byteSize.toLong()),
+              text =
+                if (entry.isSplitFromDex041) "${formatApkSize(entry.byteSize.toLong())} · DEX 041 Section"
+                else formatApkSize(entry.byteSize.toLong()),
               style = MaterialTheme.typography.labelSmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
